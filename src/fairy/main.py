@@ -23,8 +23,12 @@ def main(argv: list[str] | None = None) -> int:
         description="Fairy Agent：本地优先、权限可控、可审计的桌面 AI 代理。",
     )
     parser.add_argument("--version", action="version", version=f"fairy {__version__}")
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help='启动桌面悬浮球 GUI（需安装 PySide6：pip install -e ".[gui]"）',
+    )
     args = parser.parse_args(argv)
-    _ = args  # v0.1 暂无其他子命令
 
     settings = load_settings()
     logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
@@ -38,6 +42,17 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if args.gui:
+        try:
+            from fairy.ui.floating import run_gui
+        except ImportError:
+            print(
+                '错误：GUI 需要 PySide6。请先安装：pip install -e ".[gui]"',
+                file=sys.stderr,
+            )
+            return 1
+        return run_gui(settings)
 
     from fairy.ui.cli import run_cli
 

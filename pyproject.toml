@@ -20,12 +20,23 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
 ]
+gui = [
+    "PySide6>=6.6",
+]
+packaging = [
+    "pyinstaller>=6.0",
+    "pillow>=10.0",
+]
 
 [project.scripts]
 fairy = "fairy.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# 悬浮球图片等包内资源随包分发（PyInstaller 也按此收集）
+[tool.setuptools.package-data]
+"fairy.ui.assets" = ["*.png"]
 
 # ruff：行宽 100，目标 Python 3.11
 [tool.ruff]

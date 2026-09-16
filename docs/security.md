@@ -34,6 +34,14 @@
    `FAIRY_CONFIRM_DANGEROUS=false` 时降级为单次确认（不推荐）。
 3. `admin`：不询问，直接拒绝。
 
+### GUI 中的确认（悬浮球）
+
+桌面悬浮球 GUI（`fairy/ui/floating.py`）沿用同一套 PolicyEngine，确认回调
+通过跨线程信号桥接到 GUI 线程：write 级弹 `QMessageBox`（默认按钮为「否」），
+dangerous 级弹 `QInputDialog` 要求逐字输入确认词「确认执行」。Agent 运行在后台
+线程，弹窗期间工作线程阻塞等待用户选择，超时/取消均视为拒绝。确认逻辑与
+CLI 完全一致，无任何绕过路径。
+
 ## 审计日志
 
 所有工具调用（无论允许或拒绝）追加写入：
