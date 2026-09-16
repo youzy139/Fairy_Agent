@@ -26,7 +26,14 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QGuiApplication, QMouseEvent, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QGuiApplication,
+    QMouseEvent,
+    QPainter,
+    QPainterPath,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -126,9 +133,14 @@ class _ConfirmBridge(QObject):
 
 
 class _ToolCallEmitter(QObject):
-    """把 Agent 的工具调用事件转成 Qt 信号（跨线程自动排队到 GUI 线程）。"""
+    """GUI 事件总线：工具调用事件与 Agent 状态（驱动眼睛动画）。
+
+    状态语义：idle 待机 / thinking 思考中 / working 调用工具中 /
+    ok 完成闪一下 / error 出错红闪。
+    """
 
     called = Signal(str, str)  # 工具名, 参数摘要
+    stateChanged = Signal(str)  # 上述状态之一
 
 
 class FuncWorker(QThread):
@@ -300,6 +312,7 @@ class CommandBar(QWidget):
             return
         self._input.clear()
         self._set_reply("思考中…")
+        self._components.emitter.stateChanged.emit("thinking")
 
         self._worker = AgentWorker(self._components.agent, text, parent=self)
         self._worker.replyReady.connect(self._on_reply)
@@ -310,12 +323,15 @@ class CommandBar(QWidget):
     def _on_tool_call(self, name: str, summary: str) -> None:
         if self._worker is not None:  # 只展示当前指令期间的工具活动
             self._set_reply(f"⚙ 正在调用工具：{name}")
+            self._components.emitter.stateChanged.emit("working")
 
     def _on_reply(self, reply: str) -> None:
         self._set_reply(reply or "（空回复）")
+        self._components.emitter.stateChanged.emit("ok")
 
     def _on_error(self, message: str) -> None:
         self._set_reply(f"出错了——{message}")
+        self._components.emitter.stateChanged.emit("error")
 
     def _on_worker_done(self) -> None:
         if self._worker is not None:
@@ -399,7 +415,16 @@ class RadialMenu(QWidget):
 
 
 class FloatingBall(QWidget):
-    """蓝眼睛悬浮球：可拖拽，单击弹放射菜单，双击直达指令条，右键菜单退出。"""
+    """蓝眼睛悬浮球：可拖拽，单击弹放射菜单，双击直达指令条，右键菜单退出。
+
+    眼睛状态动画（借鉴「活物」思路，纯代码驱动原创图，无外部素材）：
+    idle 呼吸微浮动 / thinking 缓慢旋转 / working 快速旋转 /
+    ok 亮闪一下 / error 红闪，随后自动回到 idle。
+    """
+
+    STATES = ("idle", "thinking", "working", "ok", "error")
+    # ok/error 状态的停留帧数（约 0.8 秒）
+    _HOLD_FRAMES = 25
 
     def __init__(
         self,
@@ -412,6 +437,13 @@ class FloatingBall(QWidget):
         self._radial: RadialMenu | None = None
         self._drag_offset: Any = None
         self._dragged = False
+
+        # 动画状态机
+        self._state = "idle"
+        self._angle = 0.0
+        self._scale = 1.0
+        self._frame = 0
+        self._hold = 0
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -427,8 +459,47 @@ class FloatingBall(QWidget):
         screen = QGuiApplication.primaryScreen().availableGeometry()
         self.move(screen.right() - BALL_SIZE - 40, screen.bottom() - BALL_SIZE - 120)
 
+        self._timer = QTimer(self)
+        self._timer.setInterval(33)  # ~30fps
+        self._timer.timeout.connect(self._tick)
+        self._timer.start()
+
     def set_radial(self, menu: RadialMenu) -> None:
         self._radial = menu
+
+    def set_state(self, state: str) -> None:
+        """切换眼睛状态（接收 emitter.stateChanged 信号）。"""
+        if state not in self.STATES or state == self._state:
+            return
+        self._state = state
+        if state in ("ok", "error"):
+            self._hold = self._HOLD_FRAMES
+        if state == "idle":
+            self._angle = 0.0
+        self.update()
+
+    def _tick(self) -> None:
+        """动画帧推进（约 30fps）。"""
+        self._frame += 1
+        if self._state == "thinking":
+            self._angle = (self._angle + 1.5) % 360
+        elif self._state == "working":
+            self._angle = (self._angle + 5.0) % 360
+
+        if self._state == "idle":
+            # 呼吸：缩放 ±3% 缓慢起伏
+            self._scale = 1.0 + 0.03 * math.sin(self._frame / 8.0)
+        elif self._state == "ok":
+            self._scale = 1.0 + 0.06 * (self._hold / self._HOLD_FRAMES)
+        else:
+            self._scale = 1.0
+
+        if self._state in ("ok", "error"):
+            self._hold -= 1
+            if self._hold <= 0:
+                self._state = "idle"
+                self._angle = 0.0
+        self.update()
 
     def paintEvent(self, event: Any) -> None:
         painter = QPainter(self)
@@ -436,7 +507,28 @@ class FloatingBall(QWidget):
         path = QPainterPath()
         path.addEllipse(self.rect().adjusted(1, 1, -1, -1))
         painter.setClipPath(path)
-        painter.drawPixmap(self.rect(), self._pixmap)
+
+        # 以球心为原点做旋转/呼吸缩放
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.rotate(self._angle)
+        painter.scale(self._scale, self._scale)
+        painter.drawPixmap(
+            int(-self.width() / 2),
+            int(-self.height() / 2),
+            self.width(),
+            self.height(),
+            self._pixmap,
+        )
+        painter.resetTransform()
+
+        # 状态色罩：error 红闪 / ok 亮闪，随剩余帧数渐隐
+        if self._state in ("ok", "error") and self._hold > 0:
+            alpha = int(120 * (self._hold / self._HOLD_FRAMES))
+            painter.setClipPath(path)
+            if self._state == "error":
+                painter.fillRect(self.rect(), QColor(220, 40, 40, alpha))
+            else:
+                painter.fillRect(self.rect(), QColor(255, 255, 255, alpha))
         painter.end()
 
     # --- 拖拽与点击 ---
@@ -544,6 +636,7 @@ def quick_screenshot(components: GuiComponents, anchor: QWidget) -> None:
     anchor._workers = getattr(anchor, "_workers", []) + [worker]  # 防止提前回收
 
     def on_done(message: str) -> None:
+        components.emitter.stateChanged.emit("ok")
         components.audit.log(
             tool="screenshot",
             args={"source": "quick_action"},
@@ -569,6 +662,7 @@ def quick_screenshot(components: GuiComponents, anchor: QWidget) -> None:
         Toast(f"{Path(path).name} {note}", anchor, on_click=open_folder)
 
     def on_failed(message: str) -> None:
+        components.emitter.stateChanged.emit("error")
         components.audit.log(
             tool="screenshot",
             args={"source": "quick_action"},
@@ -609,6 +703,8 @@ def run_gui(settings: Settings) -> int:
         RadialAction("🗂", "整理桌面", lambda: quick_organize_desktop(components, command_bar)),
     ]
     ball.set_radial(RadialMenu(actions))
+    # 状态总线驱动眼睛动画
+    components.emitter.stateChanged.connect(ball.set_state)
 
     ball.show()
     exit_code = app.exec()

@@ -239,3 +239,62 @@ def test_toast_click_callback(qapp) -> None:
     QTest.mouseClick(toast, Qt.MouseButton.LeftButton)
     assert clicked == [True]
     assert not toast.isVisible()
+
+
+# --- 眼睛状态动画 ---
+
+
+def test_ball_state_machine(qapp) -> None:
+    ball, _, _ = _make_ball(qapp)
+    assert ball._state == "idle"
+
+    ball.set_state("thinking")
+    assert ball._state == "thinking"
+    ball._tick()
+    ball._tick()
+    assert ball._angle == 3.0  # 每帧 1.5°
+
+    ball.set_state("working")
+    ball._tick()
+    assert ball._angle == 8.0  # thinking 的 3.0 + working 每帧 5°
+
+    ball.set_state("bad-state")  # 未知状态被忽略
+    assert ball._state == "working"
+
+
+def test_ball_ok_error_auto_return_idle(qapp) -> None:
+    ball, _, _ = _make_ball(qapp)
+    ball.set_state("ok")
+    assert ball._hold == FloatingBall._HOLD_FRAMES
+    for _ in range(FloatingBall._HOLD_FRAMES + 1):
+        ball._tick()
+    assert ball._state == "idle"
+    assert ball._angle == 0.0
+
+    ball.set_state("error")
+    for _ in range(FloatingBall._HOLD_FRAMES + 1):
+        ball._tick()
+    assert ball._state == "idle"
+
+
+def test_ball_idle_breathing(qapp) -> None:
+    ball, _, _ = _make_ball(qapp)
+    ball._tick()
+    assert ball._scale != 1.0  # 呼吸缩放生效
+    assert ball._state == "idle"
+
+
+def test_command_bar_drives_ball_state(qapp, tmp_path: Path) -> None:
+    """指令条一轮对话驱动状态：thinking →（工具）→ ok。"""
+    states: list[str] = []
+    components = _components(tmp_path, _stub_agent("好了"))
+    components.emitter.stateChanged.connect(states.append)
+    bar = CommandBar(components)
+    bar._input.setText("你好")
+    bar._send()
+    for _ in range(50):
+        QTest.qWait(20)
+        if bar._worker is None:
+            break
+    assert states[0] == "thinking"
+    assert states[-1] == "ok"
