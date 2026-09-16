@@ -17,15 +17,24 @@ Fairy Agent 是一个运行在用户电脑上的**本地优先、权限可控、
 
 ## 仓库现状（重要）
 
-**v0.1 CLI MVP 代码已入库**（2026-09-16）。已实现：
+**v0.1 CLI MVP 已入库，v0.2 记忆层与桌面悬浮球 GUI 已落地**（2026-09-16）。已实现：
 
-- `src/fairy/` 完整骨架：`config.py`、`llm/client.py`、`agent/core.py`、`tools/`（base / registry / fs / shell / search）、`safety/`（policy / audit）、`ui/cli.py`
-- 工具：`list_dir`、`read_file`、`write_file`、`search_files`（read 级）、`run_command`（dangerous 级，默认关闭）
-- 安全层：权限决策引擎（read 自动允许 / write 单次确认 / dangerous 二次确认 / admin 拒绝）、审计日志 `audit.jsonl`、工作区路径限制（防穿越与符号链接逃逸）、命令黑名单、工具结果不可信标注（防提示注入）
-- 测试：113 个用例全绿（unit / integration / safety 三类）
-- 文档：`docs/security.md`
+- `src/fairy/`：`config.py`、`llm/client.py`、`agent/core.py`、`memory/store.py`、
+  `tools/`（base / registry / fs / shell / search / screenshot / desktop）、
+  `safety/`（policy / audit）、`ui/`（cli.py / floating.py）
+- 工具：`list_dir`、`read_file`、`write_file`、`search_files`、`screenshot`（read 级）、
+  `organize_desktop`（dangerous 级，默认 dry_run 预览）、`run_command`（dangerous，默认关闭）
+- 记忆层：SQLite（WAL）存储会话/消息/用户偏好/项目上下文，CLI 支持
+  `/new`、`/sessions`、`/resume <id>`；向量检索未实现
+- GUI：PySide6 悬浮球（单击放射快捷工具栏、双击对话窗、拖拽移动、右键退出），
+  确认弹窗经跨线程信号桥接 PolicyEngine；`Fairy.spec` 可打单文件 exe
+- 安全层：权限决策引擎、审计日志 `audit.jsonl`、工作区路径限制（防穿越与符号链接
+  逃逸）、命令黑名单、工具结果不可信标注；快捷动作同样审计
+- 测试：148+ 用例（unit / integration / safety，含 GUI 离屏测试）
 
-尚未实现：记忆层（memory/）、`agent/planner.py`、`agent/prompt.py`、`llm/providers.py`、`safety/sandbox.py`、`ui/tray.py`、`scripts/`、`docs/architecture.md`、`docs/tools.md`——README 目录结构中这些条目仍是规划。
+尚未实现：`agent/planner.py`、`agent/prompt.py`、`llm/providers.py`、
+`safety/sandbox.py`、`ui/tray.py`、向量检索、`docs/architecture.md`、
+`docs/tools.md`——README 目录结构中这些条目仍是规划。
 
 因此：
 
@@ -168,11 +177,11 @@ pytest
 - 提交信息使用 **Conventional Commits**（英文），例如 `feat: add file search tool`、`fix: prevent shell injection in run_command`。
 - PR 要求：通过 lint 与 test、新功能带测试、安全改动更新 `docs/security.md`、至少一人 Review。
 
-## 路线图（v0.1 已完成，下一步 v0.2）
+## 路线图（v0.1、v0.2 已完成）
 
 - v0.1 CLI MVP：OpenAI 兼容 API、CLI 对话、文件工具（含搜索）、Shell 二次确认、审计日志——**已完成并入库**。
-- v0.2 记忆：SQLite 会话存储、用户偏好、项目上下文、向量检索。
-- v0.3 安全与审计：权限策略引擎与审计日志已随 v0.1 落地基础版；待做：路径/命令白名单、沙箱适配。
+- v0.2 记忆：SQLite 会话存储、用户偏好、项目上下文——**已完成**；向量检索待做。
+- v0.3 安全与审计：权限策略引擎与审计日志已落地基础版；待做：路径/命令白名单、沙箱适配。
 - v0.4 语音：唤醒词、STT、TTS、语音中断。
-- v0.5 桌面 UI：系统托盘、蓝眼睛状态动画、快捷键、通知。
+- v0.5 桌面 UI：悬浮球（放射快捷工具栏 + 对话窗口）、exe 打包已完成；待做：系统托盘、状态动画、快捷键、通知。
 - v1.0：MCP / 插件系统、多模型路由、跨平台安装包、完整文档。

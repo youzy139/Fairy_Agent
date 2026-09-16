@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 from fairy.config import Settings
+from fairy.memory.store import MemoryStore
 from fairy.safety.audit import AuditLogger
 from fairy.safety.policy import PolicyEngine
 from fairy.tools.base import ToolError
@@ -60,6 +61,8 @@ class Agent:
         max_turns: int = MAX_TOOL_TURNS,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
+        memory: MemoryStore | None = None,
+        session_id: int | None = None,
     ) -> None:
         self._settings = settings
         self._llm = llm_client
@@ -68,9 +71,15 @@ class Agent:
         self._audit = audit
         self._max_turns = max_turns
         self._on_tool_call = on_tool_call
+        self._memory = memory
+        self._session_id = session_id
         self._messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
         ]
+        # 挂载记忆层时，system prompt 作为首条消息持久化（会话已有内容则不重复写入）
+        if self._memory is not None and self._session_id is not None:
+            if not self._memory.get_messages(self._session_id):
+                self._memory.append_message(self._session_id, self._messages[0])
 
     @property
     def messages(self) -> list[dict[str, Any]]:
@@ -81,9 +90,30 @@ class Agent:
         """清空历史，仅保留 system prompt。"""
         self._messages = self._messages[:1]
 
+    def load_session(self, session_id: int) -> None:
+        """从记忆层恢复会话历史，替换当前 messages。
+
+        若库中首条已是 system 消息则直接使用，否则把当前 system prompt
+        保留在最前。恢复后新消息追加到该会话。
+        """
+        if self._memory is None:
+            raise RuntimeError("未配置 MemoryStore，无法恢复会话。")
+        history = self._memory.get_messages(session_id)
+        if history and history[0].get("role") == "system":
+            self._messages = history
+        else:
+            self._messages = [self._messages[0], *history]
+        self._session_id = session_id
+
+    def _append_message(self, message: dict[str, Any]) -> None:
+        """追加消息到历史；挂载记忆层时同步持久化。"""
+        self._messages.append(message)
+        if self._memory is not None and self._session_id is not None:
+            self._memory.append_message(self._session_id, message)
+
     def chat(self, user_text: str) -> str:
         """处理一轮用户输入，返回最终文本回复。"""
-        self._messages.append({"role": "user", "content": user_text})
+        self._append_message({"role": "user", "content": user_text})
         tools_schema = self._registry.to_openai_tools()
 
         for _ in range(self._max_turns):
@@ -92,11 +122,11 @@ class Agent:
             if not getattr(message, "tool_calls", None):
                 # 无工具调用：对话结束
                 content = message.content or ""
-                self._messages.append({"role": "assistant", "content": content})
+                self._append_message({"role": "assistant", "content": content})
                 return content
 
             # 记录 assistant 的工具调用消息
-            self._messages.append(message.model_dump(exclude_none=True))
+            self._append_message(message.model_dump(exclude_none=True))
 
             for tool_call in message.tool_calls:
                 self._dispatch_tool_call(tool_call)
@@ -144,7 +174,7 @@ class Agent:
                     self._audit.log(tool=name, args=args, allowed=True, result_summary=output)
                     result = wrap_untrusted(output)
 
-        self._messages.append(
+        self._append_message(
             {
                 "role": "tool",
                 "tool_call_id": tool_call.id,

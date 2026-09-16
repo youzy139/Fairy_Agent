@@ -36,10 +36,12 @@ Fairy 是一个运行在用户电脑上的 AI 代理，不是单纯的聊天机�
 - [x] 文件读取、目录浏览、文件搜索
 - [x] Shell 命令执行，带二次确认
 - [x] 审计日志：JSONL 记录
-- [ ] 持久记忆：SQLite + 向量检索
+- [x] 桌面悬浮球 GUI：单击弹放射工具栏、双击直达对话
+- [x] 快捷动作：截屏、桌面整理（先预览方案，确认后执行）
+- [x] 持久记忆：SQLite 会话存储（向量检索待做）
 - [ ] 权限策略：白名单、黑名单、沙箱（命令黑名单已内置）
 - [ ] 语音唤醒、STT、TTS
-- [ ] 桌面托盘蓝眼睛 UI
+- [ ] 系统托盘与蓝眼睛状态动画
 - [ ] MCP / 插件系统
 - [ ] 本地模型支持，如 Ollama / LM Studio
 
@@ -233,6 +235,26 @@ Fairy: 想执行: pwd
 允许执行吗？[y/N]:
 ```
 
+### 桌面悬浮球（GUI）
+
+```bash
+fairy --gui          # 需先安装 GUI 依赖：pip install -e ".[gui]"
+```
+
+- **单击悬浮球**：弹出放射快捷工具栏（聊天 / 截屏 / 整理桌面）
+- **双击悬浮球**：直接打开对话窗口
+- **拖拽移动**，右键菜单可退出
+- 整理桌面等危险操作：先展示整理方案，确认后再输入「确认执行」才会移动文件
+
+#### 打包为 exe（Windows）
+
+```bash
+pip install -e ".[gui,packaging]"
+pyinstaller Fairy.spec --noconfirm
+# 产物：dist/Fairy.exe（单文件，约 65MB）
+# 把 .env 放到 Fairy.exe 同目录即可使用
+```
+
 ---
 
 ## 配置项
@@ -263,12 +285,14 @@ Fairy: 想执行: pwd
 | `read_file` | 读取文件 | 只读 | 中 |
 | `write_file` | 写入文件 | 写入 | 中 |
 | `search_files` | 文件名/内容搜索 | 只读 | 中 |
+| `screenshot` | 截屏保存到工作区 | 只读 | 中 |
+| `organize_desktop` | 桌面文件分类整理 | 危险（默认 dry_run 预览） | 高 |
 | `run_command` | 执行 Shell 命令 | 危险 | 高 |
-| `clipboard_read` | 读剪贴板 | 只读 | 中 |
-| `clipboard_write` | 写剪贴板 | 写入 | 中 |
-| `open_app` | 打开应用 | 写入 | 中 |
-| `http_fetch` | 网络请求 | 网络 | 中 |
-| `browser_open` | 打开浏览器 | 网络 | 低 |
+| `clipboard_read` | 读剪贴板（规划） | 只读 | 中 |
+| `clipboard_write` | 写剪贴板（规划） | 写入 | 中 |
+| `open_app` | 打开应用（规划） | 写入 | 中 |
+| `http_fetch` | 网络请求（规划） | 网络 | 中 |
+| `browser_open` | 打开浏览器（规划） | 网络 | 低 |
 
 ### 权限级别
 
@@ -414,9 +438,9 @@ tests/
 
 ### v0.2 记忆
 
-- [ ] SQLite 会话存储
-- [ ] 用户偏好
-- [ ] 项目上下文
+- [x] SQLite 会话存储
+- [x] 用户偏好
+- [x] 项目上下文
 - [ ] 向量检索
 
 ### v0.3 安全与审计
@@ -435,6 +459,8 @@ tests/
 
 ### v0.5 桌面 UI
 
+- [x] 桌面悬浮球（蓝眼睛图标、放射快捷工具栏、对话窗口）
+- [x] Windows 单文件 exe 打包（PyInstaller）
 - [ ] 系统托盘
 - [ ] 蓝眼睛状态动画
 - [ ] 快捷键

@@ -17,9 +17,21 @@
 
 当前已实现工具的级别：
 
-- `list_dir`、`read_file`：`read`
+- `list_dir`、`read_file`、`search_files`：`read`
+- `screenshot`：`read`。归为只读的理由：本质是「观察屏幕」的行为，副作用仅限于
+  在工作区 `screenshots/` 内**新增**时间戳命名的 PNG（绝不覆盖已有文件），
+  不修改任何用户数据。截图内容本身视为不可信数据，回传时同样包裹标注。
 - `write_file`：`write`（覆盖已存在文件同样属于需确认范畴）
+- `organize_desktop`：`dangerous`（批量移动文件）。默认 `dry_run=true` 只输出
+  整理方案不移动文件；确认方案后需 `dry_run=false` 并经二次确认才真正执行。
+  边界：仅处理桌面顶层散文件，不碰子目录内容、不移动文件夹；跳过隐藏文件与
+  `desktop.ini` 等系统文件；重名追加序号，绝不覆盖。桌面目录按
+  `~/Desktop`、`~/OneDrive/Desktop`、`~/OneDrive/桌面` 顺序探测。
 - `run_command`：`dangerous`，且默认由 `FAIRY_ALLOW_SHELL=false` 整体禁用
+
+GUI 快捷动作（悬浮球放射菜单的截屏 / 整理桌面）不经过 LLM，但走同一套安全
+要求：截屏按 read 级直接执行，整理桌面按 dangerous 级执行「方案确认 + 确认词」
+双重确认；所有快捷动作调用同样写入审计日志（`args.source` 标记为 `quick_action`）。
 
 未知权限级别按拒绝处理（最小权限原则）。
 
