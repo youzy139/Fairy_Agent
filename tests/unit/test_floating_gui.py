@@ -140,7 +140,7 @@ def test_command_bar_send_and_reply(qapp, tmp_path: Path) -> None:
         if bar._worker is None:
             break
 
-    assert "回复:你好" in bar._reply.text()
+    assert "回复:你好" in bar._reply.toPlainText()
     assert bar._reply.isVisible()
 
 
@@ -165,8 +165,8 @@ def test_command_bar_tool_call_indicator(qapp, tmp_path: Path) -> None:
     bar._worker = SimpleNamespace()  # 伪装有任务在跑
     bar._components.emitter.called.emit("list_dir", '{"path": "."}')
     QTest.qWait(50)
-    assert "list_dir" in bar._reply.text()
-    assert "⚙" in bar._reply.text()
+    assert "list_dir" in bar._reply.toPlainText()
+    assert "⚙" in bar._reply.toPlainText()
 
 
 def test_command_bar_run_command(qapp, tmp_path: Path) -> None:
@@ -176,8 +176,41 @@ def test_command_bar_run_command(qapp, tmp_path: Path) -> None:
         QTest.qWait(20)
         if bar._worker is None:
             break
-    assert "执行了:整理桌面" in bar._reply.text()
+    assert "执行了:整理桌面" in bar._reply.toPlainText()
     assert bar.isVisible()
+
+
+def test_command_bar_reply_max_height_scrollable(qapp, tmp_path: Path) -> None:
+    """超长回复限高 + 可滚动，不再溢出屏幕。"""
+    bar = CommandBar(_components(tmp_path))
+    long_text = "很长的回复\n" * 200
+    bar._set_reply(long_text)
+    assert bar._reply.height() <= CommandBar.MAX_REPLY_HEIGHT
+    # 内容超过可视高度，滚动条可用
+    assert bar._reply.verticalScrollBar().maximum() > 0
+
+
+def test_command_bar_positions_below_ball(qapp, tmp_path: Path) -> None:
+    """指令条出现在悬浮球下方。"""
+    ball, _, _ = _make_ball(qapp)
+    ball.show()
+    bar = CommandBar(_components(tmp_path))
+    bar.show_near(ball)
+    assert bar.y() >= ball.y() + ball.height()
+    # 水平方向与球居中对齐（含屏幕边缘钳制）
+    assert abs(bar.geometry().center().x() - ball.geometry().center().x()) <= bar.width() // 2
+
+
+def test_command_bar_follows_ball_drag(qapp, tmp_path: Path) -> None:
+    """拖动悬浮球时指令条跟随。"""
+    ball, _, _ = _make_ball(qapp)
+    bar = CommandBar(_components(tmp_path))
+    bar.show_near(ball)
+    ball.show()
+    # 模拟拖动：直接移动球并触发回调
+    ball.move(200, 200)
+    bar.follow(ball)
+    assert abs(bar.y() - (ball.y() + ball.height() + 12)) <= 2
 
 
 # --- 快捷动作 ---

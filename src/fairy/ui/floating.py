@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -306,18 +307,22 @@ class Toast(QLabel):
 
 
 class CommandBar(QWidget):
-    """悬浮指令条：紧凑输入 + 内联短回复。
+    """悬浮指令条：紧凑输入 + 内联回复。
 
-    Enter 发送，Esc 收起；回复显示在输入框下方的小区域里，
-    工具调用过程以「⚙ 工具名」形式内联提示。
+    Enter 发送，Esc 收起；回复显示在输入框下方的滚动区域（限高，
+    超出可上下滚动），工具调用过程以「⚙ 工具名」形式内联提示。
+    默认出现在悬浮球下方，球被拖拽时跟随移动。
     """
 
     WIDTH = 560
+    # 回复区最大高度（像素），超出出现滚动条
+    MAX_REPLY_HEIGHT = 300
 
     def __init__(self, components: GuiComponents) -> None:
         super().__init__()
         self._components = components
         self._worker: AgentWorker | None = None
+        self._anchor: QWidget | None = None
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -337,11 +342,11 @@ class CommandBar(QWidget):
             "QLineEdit {background: transparent; border: none; color: white;"
             "font-size: 15px; padding: 10px 14px;}"
         )
-        self._reply = QLabel(container)
-        self._reply.setWordWrap(True)
+        self._reply = QTextBrowser(container)
+        self._reply.setOpenExternalLinks(False)
         self._reply.setStyleSheet(
-            "QLabel {color: rgba(220, 232, 255, 230); font-size: 13px;"
-            "padding: 0px 14px 10px 14px; background: transparent; border: none;}"
+            "QTextBrowser {color: rgba(220, 232, 255, 230); font-size: 13px;"
+            "padding: 0px 14px; background: transparent; border: none;}"
         )
         self._reply.hide()
 
@@ -359,22 +364,35 @@ class CommandBar(QWidget):
         self._input.returnPressed.connect(self._send)
         components.emitter.called.connect(self._on_tool_call)
 
-    # --- 对外接口 ---
-    def show_near(self, anchor: QWidget) -> None:
-        """在悬浮球上方弹出并聚焦输入框。"""
-        self._reply.hide()
-        self.adjustSize()
+    # --- 定位 ---
+    def _reposition(self, anchor: QWidget) -> None:
+        """贴在悬浮球下方；下方空间不足时改到上方，并保证不出屏幕。"""
         screen = QGuiApplication.primaryScreen().availableGeometry()
         x = anchor.geometry().center().x() - self.width() // 2
         x = max(screen.left() + 8, min(x, screen.right() - self.width() - 8))
-        y = anchor.y() - self.height() - 12
-        if y < screen.top() + 8:  # 球太靠上时改到下方
-            y = anchor.y() + anchor.height() + 12
+        y = anchor.y() + anchor.height() + 12
+        if y + self.height() > screen.bottom() - 8:
+            y = anchor.y() - self.height() - 12
+        if y < screen.top() + 8:
+            y = screen.top() + 8
         self.move(x, y)
+
+    def show_near(self, anchor: QWidget) -> None:
+        """在悬浮球下方弹出并聚焦输入框。"""
+        self._anchor = anchor
+        self._reply.hide()
+        self.adjustSize()
+        self._reposition(anchor)
         self.show()
         self.raise_()
         self.activateWindow()
         self._input.setFocus()
+
+    def follow(self, anchor: QWidget) -> None:
+        """悬浮球移动时跟随（仅在可见时）。"""
+        self._anchor = anchor
+        if self.isVisible():
+            self._reposition(anchor)
 
     def run_command(self, text: str) -> None:
         """以外部指令驱动（如快捷动作「整理桌面」）：弹出并直接发送。"""
@@ -426,9 +444,17 @@ class CommandBar(QWidget):
             self._worker = None
 
     def _set_reply(self, text: str) -> None:
-        self._reply.setText(text)
+        self._reply.setPlainText(text)
         self._reply.show()
+        # 高度随内容增长，但不超过 MAX_REPLY_HEIGHT（超出出滚动条）
+        doc = self._reply.document()
+        doc.setTextWidth(self.WIDTH - 28)
+        height = min(int(doc.size().height()) + 16, self.MAX_REPLY_HEIGHT)
+        self._reply.setFixedHeight(height)
         self.adjustSize()
+        # 高度变化后重新定位，防止下缘出屏
+        if self._anchor is not None and self.isVisible():
+            self._reposition(self._anchor)
 
     def keyPressEvent(self, event: Any) -> None:
         if event.key() == Qt.Key.Key_Escape:
@@ -520,10 +546,12 @@ class FloatingBall(QWidget):
         self,
         on_quit: Callable[[], None],
         on_double_click: Callable[[], None] | None = None,
+        on_moved: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         self._on_quit = on_quit
         self._on_double_click = on_double_click
+        self._on_moved = on_moved  # 拖拽移动时回调（指令条跟随）
         self._radial: RadialMenu | None = None
         self._drag_offset: Any = None
         self._dragged = False
@@ -644,6 +672,9 @@ class FloatingBall(QWidget):
             # 拖拽时收起放射菜单，避免按钮悬空
             if self._radial is not None:
                 self._radial.hide()
+            # 指令条跟随移动
+            if self._on_moved is not None:
+                self._on_moved()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -813,6 +844,7 @@ def run_gui(settings: Settings) -> int:
     ball = FloatingBall(
         on_quit=app.quit,
         on_double_click=lambda: command_bar.show_near(ball),
+        on_moved=lambda: command_bar.follow(ball),
     )
 
     actions = [

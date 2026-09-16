@@ -49,3 +49,35 @@ def test_open_failure_returns_text(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(webbrowser, "open", lambda url: False)
     result = BrowserOpenTool().execute("https://example.com")
     assert "未确认打开成功" in result
+
+
+def test_site_search_builtin_template(opened: list[str]) -> None:
+    """「打开B站我要学rag」→ B站站内搜索页。"""
+    result = BrowserOpenTool().execute("b站", query="rag")
+    assert opened == ["https://search.bilibili.com/all?keyword=rag"]
+    assert "站内搜索" in result
+
+
+def test_site_search_by_domain(opened: list[str]) -> None:
+    """传完整网址时按域名匹配搜索模板。"""
+    BrowserOpenTool().execute("https://www.zhihu.com", query="fairy agent")
+    assert opened == ["https://www.zhihu.com/search?type=content&q=fairy%20agent"]
+
+
+def test_site_search_query_encoded(opened: list[str]) -> None:
+    """关键词需要 URL 编码。"""
+    BrowserOpenTool().execute("github", query="桌面 宠物")
+    assert opened[0] == "https://github.com/search?q=%E6%A1%8C%E9%9D%A2%20%E5%AE%A0%E7%89%A9"
+
+
+def test_site_search_unknown_site_rejected(opened: list[str]) -> None:
+    """无搜索模板的站点报错并指引 web_search。"""
+    with pytest.raises(ToolError, match="web_search"):
+        BrowserOpenTool().execute("某个冷门网站", query="rag")
+    assert opened == []
+
+
+def test_no_query_unchanged(opened: list[str]) -> None:
+    """不带 query 时行为不变：收藏名直达首页。"""
+    BrowserOpenTool().execute("b站")
+    assert opened == ["https://www.bilibili.com"]
