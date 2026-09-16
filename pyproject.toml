@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fairy-agent"
+version = "0.1.0"
+description = "本地优先、权限可控、可审计的桌面 AI 代理"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "openai>=1.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+fairy = "fairy.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ruff：行宽 100，目标 Python 3.11
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+# mypy：宽松模式，不启用 strict
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
