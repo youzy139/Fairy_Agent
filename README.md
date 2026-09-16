@@ -36,10 +36,13 @@ Fairy 是一个运行在用户电脑上的 AI 代理，不是单纯的聊天机�
 - [x] 文件读取、目录浏览、文件搜索
 - [x] Shell 命令执行，带二次确认
 - [x] 审计日志：JSONL 记录
-- [x] 桌面悬浮球 GUI：单击弹放射工具栏、双击直达对话
-- [x] 快捷动作：截屏、桌面整理（先预览方案，确认后执行）
-- [x] 持久记忆：SQLite 会话存储（向量检索待做）
-- [ ] 权限策略：白名单、黑名单、沙箱（命令黑名单已内置）
+- [x] 桌面悬浮球 GUI：单击放射工具栏、双击悬浮指令条
+- [x] 快捷动作：截屏（自动复制到剪贴板）、桌面图标语义摆位
+- [x] 应用启动（open_app，含白名单与别名记忆）、VSCode 打开项目（open_project）
+- [x] 剪贴板读写、打开网页（含网址收藏）、窗口管理
+- [x] `fairy init` 初始化向导（端点预设：OpenAI / Kimi Code / Ollama）
+- [x] 持久记忆：SQLite 会话存储、用户偏好、别名/收藏（向量检索待做）
+- [ ] 权限策略：路径白名单、沙箱（应用白名单与命令黑名单已内置）
 - [ ] 语音唤醒、STT、TTS
 - [ ] 系统托盘与蓝眼睛状态动画
 - [ ] MCP / 插件系统
@@ -140,7 +143,7 @@ fairy-agent/
 ### 环境要求
 
 - Python 3.11+
-- macOS / Linux / Windows / WSL
+- **Windows（完整支持）**；macOS / Linux / WSL 上通用工具（文件、搜索、命令、网页、记忆）可用，桌面类工具（图标摆位、窗口管理、剪贴板、悬浮球 GUI）目前为 Windows 限定
 - 一个 OpenAI 兼容 API Key，或本地模型服务
 
 ### 安装
@@ -175,13 +178,19 @@ uv run fairy
 
 ### 配置
 
-复制环境变量模板：
+推荐运行初始化向导，按提示选择端点（OpenAI / Kimi Code / Ollama / 自定义）并填入 API Key，自动生成 `.env`：
+
+```bash
+fairy init
+```
+
+也可以手动复制模板后编辑：
 
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`：
+`.env` 示例：
 
 ```env
 OPENAI_API_KEY=sk-xxx
@@ -241,18 +250,20 @@ Fairy: 想执行: pwd
 fairy --gui          # 需先安装 GUI 依赖：pip install -e ".[gui]"
 ```
 
-- **单击悬浮球**：弹出放射快捷工具栏（聊天 / 截屏 / 整理桌面）
-- **双击悬浮球**：直接打开对话窗口
+- **单击悬浮球**：弹出放射快捷工具栏（💬指令 / 📷截屏 / 🗂整理桌面）
+- **双击悬浮球**：悬浮指令条贴着球弹出——类 utools 的紧凑输入条，Enter 执行、Esc 收起，回复内联短小展示，没有大聊天窗
+- **截屏快捷动作**：保存到「图片/屏幕截图」并**自动复制到剪贴板**，Toast 点击可打开所在目录
+- **整理桌面**：图标不移动文件，而是按软件语义分组重排位置（游戏一排、同公司的挨着）；先出排版方案，确认 + 输入「确认执行」后才摆位
 - **拖拽移动**，右键菜单可退出
-- 整理桌面等危险操作：先展示整理方案，确认后再输入「确认执行」才会移动文件
+- 你也可以直接在指令条里说：「打开鸣潮」「用 VSCode 打开 kimi 桌宠」「打开 B 站」「读一下剪贴板」「把所有窗口最小化」
 
 #### 打包为 exe（Windows）
 
 ```bash
 pip install -e ".[gui,packaging]"
 pyinstaller Fairy.spec --noconfirm
-# 产物：dist/Fairy.exe（单文件，约 65MB）
-# 把 .env 放到 Fairy.exe 同目录即可使用
+# 产物：dist/Fairy.exe（单文件，约 66MB）
+# 把 .env 放到 Fairy.exe 同目录即可使用（可先在项目根跑 fairy init 生成）
 ```
 
 ---
@@ -272,6 +283,8 @@ pyinstaller Fairy.spec --noconfirm
 | `FAIRY_SANDBOX` | `false` | 是否启用沙箱 |
 | `FAIRY_MEMORY_BACKEND` | `sqlite` | 记忆后端 |
 | `FAIRY_EMBEDDING_MODEL` | 无 | 向量模型 |
+| `FAIRY_APP_WHITELIST` | 无 | 免确认直接启动的应用白名单（逗号分隔） |
+| `FAIRY_PROJECT_ROOTS` | `~/Desktop/project,~/projects,~/code` | open_project 的项目扫描根目录 |
 
 > 密钥不要提交到 Git。推荐本地 `.env`，生产环境使用系统 keyring 或密钥管理服务。
 
@@ -286,10 +299,19 @@ pyinstaller Fairy.spec --noconfirm
 | `write_file` | 写入文件 | 写入 | 中 |
 | `search_files` | 文件名/内容搜索 | 只读 | 中 |
 | `screenshot` | 截屏保存到工作区 | 只读 | 中 |
-| `organize_desktop` | 桌面文件分类整理 | 危险（默认 dry_run 预览） | 高 |
+| `list_desktop_icons` | 列出桌面图标与坐标 | 只读 | 低 |
+| `arrange_desktop` | 桌面图标语义分组摆位 | 危险（默认 dry_run 预览） | 中 |
+| `organize_desktop` | 桌面文件分类入文件夹 | 危险（默认 dry_run 预览） | 高 |
+| `open_app` | 按名启动应用/游戏 | 写入（白名单免确认） | 中 |
+| `open_project` | 用 VSCode 打开项目 | 写入 | 中 |
+| `clipboard_read` | 读剪贴板 | 只读 | 中 |
+| `clipboard_write` | 写剪贴板 | 写入 | 中 |
+| `browser_open` | 打开网址/收藏名 | 网络 | 低 |
+| `list_windows` | 列出窗口 | 只读 | 低 |
+| `activate_window` | 切换前台窗口 | 写入 | 低 |
+| `minimize_all_windows` | 最小化所有窗口 | 写入 | 低 |
+| `remember` | 记住别名/收藏/偏好 | 写入（仅自身记忆库，免确认） | 低 |
 | `run_command` | 执行 Shell 命令 | 危险 | 高 |
-| `clipboard_read` | 读剪贴板（规划） | 只读 | 中 |
-| `clipboard_write` | 写剪贴板（规划） | 写入 | 中 |
 | `open_app` | 打开应用（规划） | 写入 | 中 |
 | `http_fetch` | 网络请求（规划） | 网络 | 中 |
 | `browser_open` | 打开浏览器（规划） | 网络 | 低 |

@@ -18,6 +18,13 @@ def main(argv: list[str] | None = None) -> int:
             if hasattr(stream, "reconfigure"):
                 stream.reconfigure(encoding="utf-8", errors="replace")
 
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if args_list and args_list[0] == "init":
+        # 初始化向导：交互式生成 .env（不需要已有配置）
+        from fairy.onboarding import run_init
+
+        return run_init()
+
     parser = argparse.ArgumentParser(
         prog="fairy",
         description="Fairy Agent：本地优先、权限可控、可审计的桌面 AI 代理。",

@@ -17,21 +17,39 @@
 
 当前已实现工具的级别：
 
-- `list_dir`、`read_file`、`search_files`：`read`
+- `list_dir`、`read_file`、`search_files`、`clipboard_read`、`list_windows`、
+  `list_desktop_icons`：`read`
 - `screenshot`：`read`。归为只读的理由：本质是「观察屏幕」的行为，副作用仅限于
-  在工作区 `screenshots/` 内**新增**时间戳命名的 PNG（绝不覆盖已有文件），
-  不修改任何用户数据。截图内容本身视为不可信数据，回传时同样包裹标注。
-- `write_file`：`write`（覆盖已存在文件同样属于需确认范畴）
+  新增时间戳命名的 PNG（绝不覆盖已有文件），不修改任何用户数据。
+  截图内容本身视为不可信数据，回传时同样包裹标注。
+- `write_file`、`clipboard_write`、`open_app`、`open_project`、`activate_window`、
+  `minimize_all_windows`：`write`（启动进程/改窗口状态/覆盖剪贴板，需确认一次）
+- `remember`：`write`，但只写 Fairy 自身记忆库（preferences 表），
+  通过 `auto_allow` 恒免确认
+- `browser_open`：`network`；仅放行 http/https scheme（拒绝 `file:`、
+  `javascript:` 等），支持收藏名解析（内置表 + 记忆层 `fav:` 别名）
 - `organize_desktop`：`dangerous`（批量移动文件）。默认 `dry_run=true` 只输出
   整理方案不移动文件；确认方案后需 `dry_run=false` 并经二次确认才真正执行。
   边界：仅处理桌面顶层散文件，不碰子目录内容、不移动文件夹；跳过隐藏文件与
   `desktop.ini` 等系统文件；重名追加序号，绝不覆盖。桌面目录按
   `~/Desktop`、`~/OneDrive/Desktop`、`~/OneDrive/桌面` 顺序探测。
+- `arrange_desktop`：`dangerous`（批量改动桌面图标位置）。默认 `dry_run=true`
+  只输出排版方案；执行前若桌面「自动排列」开启会先关闭并记入返回文本。
+  只调用 win32 摆位消息，不移动任何文件。
 - `run_command`：`dangerous`，且默认由 `FAIRY_ALLOW_SHELL=false` 整体禁用
 
+### write 级白名单（auto_allow 钩子）
+
+`Tool.auto_allow(args)` 返回 True 时，write 级调用免确认直接放行
+（`PolicyDecision.reason="白名单内，自动放行"`，仍写审计日志）。
+当前唯一使用方是 `open_app`：环境变量 `FAIRY_APP_WHITELIST`
+（逗号分隔、大小写不敏感）内的应用名免确认。`remember` 恒 True
+（仅写自身记忆库）。dangerous 级不适用该钩子，必须二次确认。
+
 GUI 快捷动作（悬浮球放射菜单的截屏 / 整理桌面）不经过 LLM，但走同一套安全
-要求：截屏按 read 级直接执行，整理桌面按 dangerous 级执行「方案确认 + 确认词」
-双重确认；所有快捷动作调用同样写入审计日志（`args.source` 标记为 `quick_action`）。
+要求：截屏按 read 级直接执行，整理桌面转为 Agent 指令（dry_run 方案 +
+确认词双重确认）；所有快捷动作调用同样写入审计日志（`args.source` 标记为
+`quick_action`）。
 
 未知权限级别按拒绝处理（最小权限原则）。
 

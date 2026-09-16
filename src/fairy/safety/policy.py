@@ -1,7 +1,8 @@
 """权限决策引擎：按工具权限级别决定是否允许执行。
 
 - ``read``：自动允许。
-- ``write``：需用户确认一次（y/N）。
+- ``write``：需用户确认一次（y/N）；若工具的 ``auto_allow(args)`` 返回 True
+  （白名单内），则直接放行。
 - ``dangerous``：需二次确认——先 y/N，再输入完整确认词「确认执行」。
   ``confirm_dangerous=False``（对应 FAIRY_CONFIRM_DANGEROUS=false）时降级为单次确认。
 - ``network``：允许，但由审计层记录日志。
@@ -63,6 +64,9 @@ class PolicyEngine:
             return PolicyDecision(allowed=False, reason="admin 级系统操作默认禁止，已拒绝。")
 
         if level == "write":
+            # 白名单钩子：工具声明本次参数可免确认时直接放行
+            if tool.auto_allow(args):
+                return PolicyDecision(allowed=True, reason="白名单内，自动放行")
             prompt = f"工具 {tool.name} 将执行写入操作，参数：{_summarize(args)}。允许吗？[y/N] "
             if self._confirm(prompt):
                 return PolicyDecision(allowed=True)

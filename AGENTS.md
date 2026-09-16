@@ -17,24 +17,30 @@ Fairy Agent 是一个运行在用户电脑上的**本地优先、权限可控、
 
 ## 仓库现状（重要）
 
-**v0.1 CLI MVP 已入库，v0.2 记忆层与桌面悬浮球 GUI 已落地**（2026-09-16）。已实现：
+**v0.1 CLI MVP、v0.2 记忆层、桌面悬浮球 GUI 与快捷工具集均已入库**（2026-09-16）。已实现：
 
-- `src/fairy/`：`config.py`、`llm/client.py`、`agent/core.py`、`memory/store.py`、
-  `tools/`（base / registry / fs / shell / search / screenshot / desktop）、
-  `safety/`（policy / audit）、`ui/`（cli.py / floating.py）
-- 工具：`list_dir`、`read_file`、`write_file`、`search_files`、`screenshot`（read 级）、
-  `organize_desktop`（dangerous 级，默认 dry_run 预览）、`run_command`（dangerous，默认关闭）
-- 记忆层：SQLite（WAL）存储会话/消息/用户偏好/项目上下文，CLI 支持
-  `/new`、`/sessions`、`/resume <id>`；向量检索未实现
-- GUI：PySide6 悬浮球（单击放射快捷工具栏、双击对话窗、拖拽移动、右键退出），
-  确认弹窗经跨线程信号桥接 PolicyEngine；`Fairy.spec` 可打单文件 exe
-- 安全层：权限决策引擎、审计日志 `audit.jsonl`、工作区路径限制（防穿越与符号链接
-  逃逸）、命令黑名单、工具结果不可信标注；快捷动作同样审计
-- 测试：148+ 用例（unit / integration / safety，含 GUI 离屏测试）
+- `src/fairy/`：`config.py`、`onboarding.py`（`fairy init` 向导）、`llm/client.py`、
+  `agent/core.py`、`memory/store.py`、`safety/`（policy / audit）、
+  `ui/`（cli.py / floating.py 悬浮球+指令条）、`tools/`（base / registry / fs / shell /
+  search / screenshot / desktop / desktop_icons / _desktop_listview / apps /
+  clipboard / browser / windows_mgmt / remember）
+- 工具 17 个：文件与搜索（read/write）、Shell（dangerous 默认关）、截屏（read，
+  快捷动作自动复制剪贴板）、桌面图标语义摆位（arrange_desktop，dangerous，
+  dry_run 预览）、桌面文件归类（organize_desktop，dangerous）、open_app
+  （write，FAIRY_APP_WHITELIST 免确认 + 别名记忆）、open_project（write）、
+  剪贴板读写、browser_open（network，收藏名解析）、窗口管理三件套、remember
+  （对话教学记忆）
+- 安全层：权限决策引擎（含 write 级 auto_allow 白名单钩子）、审计日志、工作区
+  路径限制、命令黑名单、工具结果不可信标注；快捷动作同样审计
+- GUI：悬浮球（单击放射菜单 / 双击指令条 / 拖拽 / 右键退出）、指令条（Enter 执行、
+  Esc 收起、内联回复）、确认弹窗跨线程桥接；`Fairy.spec` 打单文件 exe
+- 记忆层：SQLite（WAL）会话/偏好/项目上下文；CLI `/new` `/sessions` `/resume`
+- 测试：219 用例全绿（unit / integration / safety，含 GUI 离屏）
+- 平台：Windows 完整支持；macOS/Linux 仅通用工具可用（桌面类工具 Windows 限定）
 
 尚未实现：`agent/planner.py`、`agent/prompt.py`、`llm/providers.py`、
-`safety/sandbox.py`、`ui/tray.py`、向量检索、`docs/architecture.md`、
-`docs/tools.md`——README 目录结构中这些条目仍是规划。
+`safety/sandbox.py`、向量检索、眼睛状态动画（悬浮球现为静态图）、系统托盘、
+`docs/architecture.md`、`docs/tools.md`。
 
 因此：
 

@@ -37,6 +37,15 @@ class Tool(ABC):
         返回值会作为「不可信数据」回传给 LLM；执行失败应抛出 :class:`ToolError`。
         """
 
+    def auto_allow(self, args: dict[str, Any]) -> bool:
+        """write 级工具可对白名单内的参数免确认。
+
+        默认返回 ``False``（一律走用户确认流程）。write 级子类可重写本方法，
+        对白名单内的参数（如 FAIRY_APP_WHITELIST 中的应用名）返回 ``True``，
+        :class:`~fairy.safety.policy.PolicyEngine` 将直接放行而不再询问用户。
+        """
+        return False
+
     def to_openai_schema(self) -> dict[str, Any]:
         """生成 OpenAI tools schema 中该工具的条目。"""
         return {

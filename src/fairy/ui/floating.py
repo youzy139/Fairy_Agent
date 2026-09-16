@@ -1,13 +1,16 @@
 """桌面悬浮球 GUI（PySide6）。
 
-- 蓝眼睛悬浮球：无边框、置顶、可拖拽；单击弹出放射快捷工具栏，双击直达对话窗口，
+交互设计（按用户要求：简洁、快捷、不要传统聊天窗）：
+
+- 蓝眼睛悬浮球：无边框、置顶、可拖拽；单击弹放射快捷工具栏，双击直达指令条，
   右键菜单退出。
-- 放射工具栏：围绕悬浮球弹出圆形按钮（聊天 / 截屏 / 整理桌面），快捷动作直接调用
-  对应工具；截屏异步执行，整理桌面先出方案、经确认后才移动文件。
-- 对话窗口：复用 Agent Core；LLM 调用在后台线程执行，界面不冻结。
-- 安全模型与 CLI 一致：write 级操作弹窗确认一次，dangerous 级需输入确认词，
-  确认回调通过跨线程信号桥接到 GUI 线程弹窗，工作线程阻塞等待结果。
-- 快捷动作（不经过 LLM 的直接工具调用）同样写入审计日志。
+- 放射工具栏：围绕悬浮球的圆形按钮（指令 / 截屏 / 整理桌面）。
+- 悬浮指令条：类 utools/Alfred 的紧凑输入条，输入即走，回复内联短小展示，
+  Esc 收起，没有大聊天窗。
+- 快捷动作：截屏直达（存「图片/屏幕截图」，Toast 可点击打开）；
+  整理桌面改为给 Agent 下达语义摆位指令（图标不移动文件，只重排位置）。
+- 安全模型与 CLI 一致：write/dangerous 级操作经 _ConfirmBridge 弹窗确认；
+  所有快捷动作写审计日志。
 """
 
 from __future__ import annotations
@@ -19,20 +22,20 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import resources
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QMouseEvent, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
-    QHBoxLayout,
+    QFrame,
     QInputDialog,
     QLabel,
     QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
-    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -40,9 +43,9 @@ from PySide6.QtWidgets import (
 from fairy.agent.core import Agent
 from fairy.config import Settings
 from fairy.safety.audit import AuditLogger
-from fairy.safety.policy import CONFIRM_PHRASE, PolicyEngine
-from fairy.tools.base import ToolError
+from fairy.safety.policy import PolicyEngine
 from fairy.tools.registry import ToolRegistry
+from fairy.tools.screenshot import ScreenshotTool
 from fairy.ui.cli import build_registry
 
 # 悬浮球直径（像素）
@@ -50,6 +53,17 @@ BALL_SIZE = 72
 # 放射工具栏：按钮直径与围绕球的半径
 RADIAL_BUTTON_SIZE = 46
 RADIAL_RADIUS = 82
+
+# 快捷截屏的保存目录（系统「图片/屏幕截图」，与 Windows 截图习惯一致）
+QUICK_SCREENSHOT_DIR = Path.home() / "Pictures" / "Screenshots"
+
+# 「整理桌面」快捷动作下达给 Agent 的指令
+ORGANIZE_INSTRUCTION = (
+    "帮我整理桌面图标的摆放：先用 list_desktop_icons 列出桌面图标，"
+    "按软件属性语义分组（比如游戏、开发工具、办公软件、系统工具），"
+    "同一公司或同一系列的排在一起（例如米哈游的游戏相邻），"
+    "然后用 arrange_desktop 先 dry_run 给我排版方案；我确认后你再正式执行。"
+)
 
 
 def eye_image_path() -> str:
@@ -111,8 +125,14 @@ class _ConfirmBridge(QObject):
         return str(call.value or "")
 
 
+class _ToolCallEmitter(QObject):
+    """把 Agent 的工具调用事件转成 Qt 信号（跨线程自动排队到 GUI 线程）。"""
+
+    called = Signal(str, str)  # 工具名, 参数摘要
+
+
 class FuncWorker(QThread):
-    """后台线程执行一个普通函数（截屏、整理桌面等），避免阻塞 GUI。"""
+    """后台线程执行一个普通函数（截屏等），避免阻塞 GUI。"""
 
     done = Signal(str)
     failed = Signal(str)
@@ -132,7 +152,6 @@ class AgentWorker(QThread):
     """后台线程执行一轮 Agent 对话，避免阻塞 GUI。"""
 
     replyReady = Signal(str)
-    toolCalled = Signal(str, str)  # 工具名, 参数摘要
     errorOccurred = Signal(str)
 
     def __init__(self, agent: Agent, user_text: str, parent: QObject | None = None) -> None:
@@ -150,100 +169,169 @@ class AgentWorker(QThread):
 
 
 class Toast(QLabel):
-    """悬浮球旁的轻提示，几秒后自动消失。"""
+    """悬浮球旁的轻提示，几秒后自动消失；支持点击查看（如打开截图所在目录）。"""
 
-    def __init__(self, text: str, anchor: QWidget) -> None:
+    def __init__(
+        self,
+        text: str,
+        anchor: QWidget,
+        on_click: Callable[[], None] | None = None,
+        duration_ms: int = 5000,
+    ) -> None:
         super().__init__(text)
+        self._on_click = on_click
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setStyleSheet(
+        style = (
             "background: rgba(20, 40, 80, 220); color: white; padding: 8px 12px;"
             "border-radius: 8px; font-size: 13px;"
         )
+        if on_click is not None:
+            style += "text-decoration: underline;"
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(style)
         self.adjustSize()
         # 显示在悬浮球左侧，避免遮挡
         self.move(anchor.x() - self.width() - 12, anchor.y() + BALL_SIZE // 3)
         self.show()
-        QTimer.singleShot(3000, self.close)
+        QTimer.singleShot(duration_ms, self.close)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._on_click is not None:
+            self._on_click()
+        self.close()
 
 
-class ChatWindow(QWidget):
-    """对话窗口：消息历史 + 输入框，隐藏而非关闭（由悬浮球切换）。"""
+class CommandBar(QWidget):
+    """悬浮指令条：紧凑输入 + 内联短回复。
 
-    def __init__(self, agent: Agent) -> None:
+    Enter 发送，Esc 收起；回复显示在输入框下方的小区域里，
+    工具调用过程以「⚙ 工具名」形式内联提示。
+    """
+
+    WIDTH = 560
+
+    def __init__(self, components: GuiComponents) -> None:
         super().__init__()
-        self._agent = agent
+        self._components = components
         self._worker: AgentWorker | None = None
 
-        self.setWindowTitle("Fairy")
-        self.resize(440, 540)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        self._history = QTextBrowser(self)
-        self._input = QLineEdit(self)
-        self._input.setPlaceholderText("和 Fairy 说点什么…（Enter 发送）")
-        self._send_btn = QPushButton("发送", self)
+        container = QFrame(self)
+        container.setStyleSheet(
+            "QFrame {background: rgba(14, 24, 48, 240); border-radius: 12px;"
+            "border: 1px solid rgba(120, 180, 255, 120);}"
+        )
+        self._input = QLineEdit(container)
+        self._input.setPlaceholderText("告诉 Fairy 要做什么…（Enter 执行，Esc 收起）")
+        self._input.setStyleSheet(
+            "QLineEdit {background: transparent; border: none; color: white;"
+            "font-size: 15px; padding: 10px 14px;}"
+        )
+        self._reply = QLabel(container)
+        self._reply.setWordWrap(True)
+        self._reply.setStyleSheet(
+            "QLabel {color: rgba(220, 232, 255, 230); font-size: 13px;"
+            "padding: 0px 14px 10px 14px; background: transparent; border: none;}"
+        )
+        self._reply.hide()
 
-        bottom = QHBoxLayout()
-        bottom.addWidget(self._input, stretch=1)
-        bottom.addWidget(self._send_btn)
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._history, stretch=1)
-        layout.addLayout(bottom)
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._input)
+        layout.addWidget(self._reply)
 
-        self._send_btn.clicked.connect(self._send)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(container)
+
+        self.setFixedWidth(self.WIDTH)
         self._input.returnPressed.connect(self._send)
+        components.emitter.called.connect(self._on_tool_call)
 
-        self._append("Fairy", "你好，我是 Fairy。点我弹快捷菜单，双击直接对话。")
+    # --- 对外接口 ---
+    def show_near(self, anchor: QWidget) -> None:
+        """在悬浮球上方弹出并聚焦输入框。"""
+        self._reply.hide()
+        self.adjustSize()
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        x = anchor.geometry().center().x() - self.width() // 2
+        x = max(screen.left() + 8, min(x, screen.right() - self.width() - 8))
+        y = anchor.y() - self.height() - 12
+        if y < screen.top() + 8:  # 球太靠上时改到下方
+            y = anchor.y() + anchor.height() + 12
+        self.move(x, y)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self._input.setFocus()
 
-    def _append(self, who: str, text: str) -> None:
-        self._history.append(f"<b>{who}:</b> {text}")
+    def run_command(self, text: str) -> None:
+        """以外部指令驱动（如快捷动作「整理桌面」）：弹出并直接发送。"""
+        self._input.setText(text)
+        if not self.isVisible():
+            # 无锚点时贴屏幕底部中央
+            screen = QGuiApplication.primaryScreen().availableGeometry()
+            self.adjustSize()
+            self.move(
+                screen.center().x() - self.width() // 2,
+                screen.bottom() - self.height() - 80,
+            )
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        self._send()
 
+    # --- 内部逻辑 ---
     def _send(self) -> None:
         text = self._input.text().strip()
         if not text or self._worker is not None:
             return
         self._input.clear()
-        self._append("你", text)
-        self._set_busy(True)
+        self._set_reply("思考中…")
 
-        self._worker = AgentWorker(self._agent, text, parent=self)
+        self._worker = AgentWorker(self._components.agent, text, parent=self)
         self._worker.replyReady.connect(self._on_reply)
         self._worker.errorOccurred.connect(self._on_error)
         self._worker.finished.connect(self._on_worker_done)
         self._worker.start()
 
+    def _on_tool_call(self, name: str, summary: str) -> None:
+        if self._worker is not None:  # 只展示当前指令期间的工具活动
+            self._set_reply(f"⚙ 正在调用工具：{name}")
+
     def _on_reply(self, reply: str) -> None:
-        self._append("Fairy", reply or "（空回复）")
+        self._set_reply(reply or "（空回复）")
 
     def _on_error(self, message: str) -> None:
-        self._append("Fairy", f"出错了——{message}")
+        self._set_reply(f"出错了——{message}")
 
     def _on_worker_done(self) -> None:
         if self._worker is not None:
             self._worker.deleteLater()
             self._worker = None
-        self._set_busy(False)
 
-    def _set_busy(self, busy: bool) -> None:
-        self._input.setDisabled(busy)
-        self._send_btn.setDisabled(busy)
+    def _set_reply(self, text: str) -> None:
+        self._reply.setText(text)
+        self._reply.show()
+        self.adjustSize()
 
-    def toggle_visibility(self) -> None:
-        """显示/隐藏切换（悬浮球双击或快捷菜单「聊天」时调用）。"""
-        if self.isVisible():
+    def keyPressEvent(self, event: Any) -> None:
+        if event.key() == Qt.Key.Key_Escape:
             self.hide()
-        else:
-            self.show()
-            self.raise_()
-            self.activateWindow()
-
-    def closeEvent(self, event: Any) -> None:  # 关闭按钮只隐藏，不退出应用
-        self.hide()
-        event.ignore()
+            return
+        super().keyPressEvent(event)
 
 
 @dataclass
@@ -258,8 +346,7 @@ class RadialAction:
 class RadialMenu(QWidget):
     """围绕悬浮球弹出的放射快捷工具栏。
 
-    容器整体透明且鼠标穿透，只有圆形按钮响应点击；再点一下悬浮球或点击
-    空白处即收起。
+    容器整体透明且鼠标穿透，只有圆形按钮响应点击；再点一下悬浮球即收起。
     """
 
     def __init__(self, actions: list[RadialAction]) -> None:
@@ -312,12 +399,16 @@ class RadialMenu(QWidget):
 
 
 class FloatingBall(QWidget):
-    """蓝眼睛悬浮球：可拖拽，单击弹放射菜单，双击直达对话，右键菜单退出。"""
+    """蓝眼睛悬浮球：可拖拽，单击弹放射菜单，双击直达指令条，右键菜单退出。"""
 
-    def __init__(self, chat_window: ChatWindow, on_quit: Any) -> None:
+    def __init__(
+        self,
+        on_quit: Callable[[], None],
+        on_double_click: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__()
-        self._chat_window = chat_window
         self._on_quit = on_quit
+        self._on_double_click = on_double_click
         self._radial: RadialMenu | None = None
         self._drag_offset: Any = None
         self._dragged = False
@@ -364,39 +455,34 @@ class FloatingBall(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            if not self._dragged:
-                if self._radial is not None:
-                    self._radial.toggle(self)
-                else:
-                    self._chat_window.toggle_visibility()
+            if not self._dragged and self._radial is not None:
+                self._radial.toggle(self)
             self._drag_offset = None
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             if self._radial is not None:
                 self._radial.hide()
-            self._chat_window.toggle_visibility()
+            if self._on_double_click is not None:
+                self._on_double_click()
 
     def contextMenuEvent(self, event: Any) -> None:
         menu = QMenu(self)
-        toggle_action = menu.addAction("显示 / 隐藏对话")
         quit_action = menu.addAction("退出 Fairy")
-        action = menu.exec(event.globalPos())
-        if action is toggle_action:
-            self._chat_window.toggle_visibility()
-        elif action is quit_action:
+        if menu.exec(event.globalPos()) is quit_action:
             self._on_quit()
 
 
 @dataclass
 class GuiComponents:
-    """GUI 组装产物：Agent 与其安全/审计/记忆依赖、工作区。"""
+    """GUI 组装产物：Agent 与其安全/审计/记忆依赖、工作区、事件发射器。"""
 
     agent: Agent
     audit: AuditLogger
     bridge: _ConfirmBridge
     registry: ToolRegistry
     workspace: str
+    emitter: _ToolCallEmitter
     memory: Any = None  # MemoryStore | None（memory_backend=sqlite 时启用）
 
 
@@ -406,7 +492,6 @@ def build_gui_components(settings: Settings) -> GuiComponents:
     from fairy.memory.store import MemoryStore
 
     workspace = os.getcwd()
-    registry = build_registry(settings, workspace)
     bridge = _ConfirmBridge(None)
     policy = PolicyEngine(
         confirm=bridge.confirm,
@@ -414,6 +499,7 @@ def build_gui_components(settings: Settings) -> GuiComponents:
         confirm_dangerous=settings.confirm_dangerous,
     )
     audit = AuditLogger(settings.data_dir)
+    emitter = _ToolCallEmitter()
 
     # 记忆层：sqlite 后端时每次启动新建会话并持久化消息
     memory: MemoryStore | None = None
@@ -422,10 +508,12 @@ def build_gui_components(settings: Settings) -> GuiComponents:
         memory = MemoryStore(settings.data_dir)
         session_id = memory.create_session(workspace)
 
+    registry = build_registry(settings, workspace, memory=memory)
+
     def on_tool_call(name: str, args: dict[str, Any]) -> None:
-        # 工作线程回调：目前仅记录到日志，界面通过回复感知
+        # 工作线程回调：转成 Qt 信号交给指令条展示
         summary = json.dumps(args, ensure_ascii=False)[:200]
-        print(f"[工具调用] {name} {summary}")
+        emitter.called.emit(name, summary)
 
     agent = Agent(
         settings=settings,
@@ -443,15 +531,14 @@ def build_gui_components(settings: Settings) -> GuiComponents:
         bridge=bridge,
         registry=registry,
         workspace=workspace,
+        emitter=emitter,
         memory=memory,
     )
 
 
 def quick_screenshot(components: GuiComponents, anchor: QWidget) -> None:
-    """快捷动作：截屏（read 级，直接执行，结果写审计并弹 Toast）。"""
-    tool = components.registry.get("screenshot")
-    if tool is None:
-        return
+    """快捷动作：截屏直达，存「图片/屏幕截图」，Toast 点击可打开所在目录。"""
+    tool = ScreenshotTool(components.workspace, output_dir=QUICK_SCREENSHOT_DIR)
 
     worker = FuncWorker(tool.execute, parent=anchor)
     anchor._workers = getattr(anchor, "_workers", []) + [worker]  # 防止提前回收
@@ -463,7 +550,23 @@ def quick_screenshot(components: GuiComponents, anchor: QWidget) -> None:
             allowed=True,
             result_summary=message,
         )
-        Toast(message, anchor)
+        # 消息格式：截屏已保存：<path>（WxH）——提取路径用于点击打开
+        path = message.split("：", 1)[-1].split("（")[0]
+
+        # 顺手复制到剪贴板：截屏最常见的下一步就是 Ctrl+V 粘贴
+        pixmap = QPixmap(path)
+        if not pixmap.isNull():
+            QGuiApplication.clipboard().setPixmap(pixmap)
+            copied = True
+        else:
+            copied = False
+
+        def open_folder() -> None:
+            # 本机资源管理器打开截图所在目录（固定系统程序，无注入面）
+            os.startfile(str(Path(path).parent))
+
+        note = "已复制，可直接 Ctrl+V（点击查看文件）" if copied else "已保存（点击查看）"
+        Toast(f"{Path(path).name} {note}", anchor, on_click=open_folder)
 
     def on_failed(message: str) -> None:
         components.audit.log(
@@ -479,91 +582,31 @@ def quick_screenshot(components: GuiComponents, anchor: QWidget) -> None:
     worker.start()
 
 
-def quick_organize_desktop(components: GuiComponents, anchor: QWidget) -> None:
-    """快捷动作：整理桌面（dangerous 级）。
+def quick_organize_desktop(components: GuiComponents, command_bar: CommandBar) -> None:
+    """快捷动作：整理桌面——向 Agent 下达语义摆位指令。
 
-    流程：dry_run 出方案 → 弹窗确认 → 输入确认词「确认执行」→ 后台执行。
-    每一步都写审计日志，与 CLI/LLM 路径的安全要求一致。
+    Agent 会先 list_desktop_icons，再 arrange_desktop（dry_run 出方案，
+    经弹窗确认 + 确认词后才真正摆位）。全程走 PolicyEngine 与审计。
     """
-    tool = components.registry.get("organize_desktop")
-    if tool is None:
-        return
-
-    try:
-        plan = tool.execute(dry_run=True)
-    except ToolError as exc:
-        components.audit.log(
-            tool="organize_desktop",
-            args={"dry_run": True, "source": "quick_action"},
-            allowed=True,
-            result_summary=f"执行失败：{exc}",
-        )
-        Toast(f"无法整理桌面：{exc}", anchor)
-        return
-    components.audit.log(
-        tool="organize_desktop",
-        args={"dry_run": True, "source": "quick_action"},
-        allowed=True,
-        result_summary=plan,
-    )
-
-    box = QMessageBox(anchor)
-    box.setWindowTitle("Fairy · 整理桌面")
-    box.setText("整理方案如下，是否执行？")
-    box.setDetailedText(plan)
-    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-    box.setDefaultButton(QMessageBox.StandardButton.No)
-    if box.exec() != QMessageBox.StandardButton.Yes:
-        components.audit.log(
-            tool="organize_desktop",
-            args={"dry_run": False, "source": "quick_action"},
-            allowed=False,
-            deny_reason="用户在方案确认环节取消。",
-        )
-        return
-
-    phrase, ok = QInputDialog.getText(
-        anchor, "Fairy 二次确认", f"请输入「{CONFIRM_PHRASE}」以执行桌面整理："
-    )
-    if not ok or phrase.strip() != CONFIRM_PHRASE:
-        components.audit.log(
-            tool="organize_desktop",
-            args={"dry_run": False, "source": "quick_action"},
-            allowed=False,
-            deny_reason="二次确认词不正确，已取消执行。",
-        )
-        Toast("已取消整理桌面。", anchor)
-        return
-
-    worker = FuncWorker(lambda: tool.execute(dry_run=False), parent=anchor)
-    anchor._workers = getattr(anchor, "_workers", []) + [worker]
-
-    def on_done(message: str) -> None:
-        components.audit.log(
-            tool="organize_desktop",
-            args={"dry_run": False, "source": "quick_action"},
-            allowed=True,
-            result_summary=message,
-        )
-        Toast("桌面整理完成。", anchor)
-
-    worker.done.connect(on_done)
-    worker.start()
+    command_bar.run_command(ORGANIZE_INSTRUCTION)
 
 
 def run_gui(settings: Settings) -> int:
     """启动悬浮球 GUI。"""
     app = QApplication.instance() or QApplication([])
-    app.setQuitOnLastWindowClosed(False)  # 关掉对话窗口不退出，由悬浮球控制
+    app.setQuitOnLastWindowClosed(False)  # 悬浮球是唯一常驻窗口
 
     components = build_gui_components(settings)
-    chat = ChatWindow(components.agent)
-    ball = FloatingBall(chat, on_quit=app.quit)
+    command_bar = CommandBar(components)
+    ball = FloatingBall(
+        on_quit=app.quit,
+        on_double_click=lambda: command_bar.show_near(ball),
+    )
 
     actions = [
-        RadialAction("💬", "聊天", chat.toggle_visibility),
+        RadialAction("💬", "指令", lambda: command_bar.show_near(ball)),
         RadialAction("📷", "截屏", lambda: quick_screenshot(components, ball)),
-        RadialAction("🗂", "整理桌面", lambda: quick_organize_desktop(components, ball)),
+        RadialAction("🗂", "整理桌面", lambda: quick_organize_desktop(components, command_bar)),
     ]
     ball.set_radial(RadialMenu(actions))
 

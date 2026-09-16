@@ -42,8 +42,24 @@ def cli_confirm_phrase(prompt: str) -> str:
     return input(prompt)
 
 
-def build_registry(settings: Settings, workspace: str) -> ToolRegistry:
-    """按当前配置构建工具注册表，工作区根目录默认为当前目录。"""
+def build_registry(settings: Settings, workspace: str, memory: Any = None) -> ToolRegistry:
+    """按当前配置构建工具注册表，工作区根目录默认为当前目录。
+
+    ``memory`` 为 MemoryStore 时，别名/收藏类工具（open_app、browser_open、
+    remember）启用对话教学记忆。
+    """
+    # 局部导入：桌面/窗口/应用类工具为 Windows 专属，保持模块在非 Windows 可导入
+    from fairy.tools.apps import OpenAppTool, OpenProjectTool
+    from fairy.tools.browser import BrowserOpenTool
+    from fairy.tools.clipboard import ClipboardReadTool, ClipboardWriteTool
+    from fairy.tools.desktop_icons import ArrangeDesktopTool, ListDesktopIconsTool
+    from fairy.tools.remember import RememberTool
+    from fairy.tools.windows_mgmt import (
+        ActivateWindowTool,
+        ListWindowsTool,
+        MinimizeAllWindowsTool,
+    )
+
     registry = ToolRegistry()
     registry.register(ListDirTool(workspace))
     registry.register(ReadFileTool(workspace))
@@ -52,6 +68,17 @@ def build_registry(settings: Settings, workspace: str) -> ToolRegistry:
     registry.register(RunCommandTool(workspace, allow_shell=settings.allow_shell))
     registry.register(ScreenshotTool(workspace))
     registry.register(OrganizeDesktopTool())
+    registry.register(ListDesktopIconsTool())
+    registry.register(ArrangeDesktopTool())
+    registry.register(OpenAppTool(memory))
+    registry.register(OpenProjectTool())
+    registry.register(ClipboardReadTool())
+    registry.register(ClipboardWriteTool())
+    registry.register(BrowserOpenTool(memory))
+    registry.register(ListWindowsTool())
+    registry.register(ActivateWindowTool())
+    registry.register(MinimizeAllWindowsTool())
+    registry.register(RememberTool(memory))
     return registry
 
 
@@ -65,7 +92,7 @@ def build_agent(
     from fairy.llm.client import LLMClient
 
     ws = workspace or os.getcwd()
-    registry = build_registry(settings, ws)
+    registry = build_registry(settings, ws, memory=memory)
     policy = PolicyEngine(
         confirm=cli_confirm,
         confirm_phrase=cli_confirm_phrase,

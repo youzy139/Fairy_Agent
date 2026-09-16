@@ -17,7 +17,12 @@ from fairy.tools.fs import _resolve_in_workspace
 
 
 class ScreenshotTool(Tool):
-    """截取当前屏幕，保存为 PNG 到工作区 screenshots/ 目录。"""
+    """截取当前屏幕，保存为 PNG。
+
+    默认保存到工作区 ``screenshots/`` 目录；构造时可注入 ``output_dir``
+    （如系统「图片/屏幕截图」目录）供 GUI 快捷动作使用——该参数只能由
+    调用方代码注入，不在 LLM 可见的 JSON Schema 中，模型无法指定保存位置。
+    """
 
     name = "screenshot"
     description = "截取当前屏幕画面，保存为 PNG 文件到工作区 screenshots/ 目录，返回文件路径"
@@ -33,8 +38,13 @@ class ScreenshotTool(Tool):
     }
     permission: PermissionLevel = "read"
 
-    def __init__(self, workspace: str | os.PathLike[str]) -> None:
+    def __init__(
+        self,
+        workspace: str | os.PathLike[str],
+        output_dir: str | os.PathLike[str] | None = None,
+    ) -> None:
         self._workspace = Path(workspace)
+        self._output_dir = Path(output_dir).expanduser() if output_dir else None
 
     def execute(self, all_screens: bool = False) -> str:
         try:
@@ -47,8 +57,12 @@ class ScreenshotTool(Tool):
         except OSError as exc:
             raise ToolError(f"截屏失败：{exc}") from exc
 
-        out_dir = _resolve_in_workspace(self._workspace, "screenshots")
-        out_dir.mkdir(parents=True, exist_ok=True)
+        if self._output_dir is not None:
+            out_dir = self._output_dir
+            out_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            out_dir = _resolve_in_workspace(self._workspace, "screenshots")
+            out_dir.mkdir(parents=True, exist_ok=True)
         filename = datetime.now().strftime("screenshot-%Y%m%d-%H%M%S.png")
         out_path = out_dir / filename
         # 时间戳碰撞时追加序号，绝不覆盖已有文件
@@ -57,5 +71,4 @@ class ScreenshotTool(Tool):
             out_path = out_dir / f"{filename[:-4]}-{seq}.png"
             seq += 1
         image.save(out_path, format="PNG")
-        rel = out_path.relative_to(self._workspace.resolve())
-        return f"截屏已保存：{rel}（{image.width}x{image.height}）"
+        return f"截屏已保存：{out_path}（{image.width}x{image.height}）"

@@ -115,3 +115,55 @@ def test_unknown_level_denied() -> None:
     tool.permission = "root"  # type: ignore[assignment]
     decision = engine.check(tool, {})
     assert decision.allowed is False
+
+
+# ------------------------------------------------------------------
+# auto_allow 白名单钩子
+# ------------------------------------------------------------------
+
+
+class _WhitelistTool(_DummyTool):
+    """auto_allow 返回值可控的假工具。"""
+
+    def __init__(self, permission: PermissionLevel, auto_allow_ret: bool) -> None:
+        super().__init__(permission)
+        self._auto_allow_ret = auto_allow_ret
+        self.auto_allow_args: dict[str, Any] | None = None
+
+    def auto_allow(self, args: dict[str, Any]) -> bool:
+        self.auto_allow_args = args
+        return self._auto_allow_ret
+
+
+def test_base_auto_allow_default_false() -> None:
+    """Tool 基类的 auto_allow 默认返回 False。"""
+    assert _DummyTool("write").auto_allow({}) is False
+
+
+def test_write_auto_allow_bypasses_confirm() -> None:
+    """write 级工具 auto_allow 为 True 时直接放行，不再询问用户。"""
+    engine, confirm, phrase = _engine(confirm_ret=False)
+    tool = _WhitelistTool("write", True)
+    decision = engine.check(tool, {"name": "微信"})
+    assert decision.allowed is True
+    assert decision.reason == "白名单内，自动放行"
+    assert tool.auto_allow_args == {"name": "微信"}
+    confirm.assert_not_called()
+    phrase.assert_not_called()
+
+
+def test_write_auto_allow_false_still_confirms() -> None:
+    """auto_allow 为 False 时 write 级仍走正常确认流程。"""
+    engine, confirm, _ = _engine(confirm_ret=True)
+    decision = engine.check(_WhitelistTool("write", False), {"path": "a.txt"})
+    assert decision.allowed is True
+    confirm.assert_called_once()
+
+
+def test_auto_allow_only_applies_to_write() -> None:
+    """dangerous 级即使 auto_allow 为 True 也不豁免二次确认。"""
+    engine, confirm, phrase = _engine(confirm_ret=True, phrase_ret=CONFIRM_PHRASE)
+    decision = engine.check(_WhitelistTool("dangerous", True), {})
+    assert decision.allowed is True
+    confirm.assert_called_once()
+    phrase.assert_called_once()
