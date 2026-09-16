@@ -64,9 +64,9 @@ def _make_ball(qapp):
     calls: list[str] = []
     ball = FloatingBall(on_quit=lambda: None, on_double_click=lambda: calls.append("double"))
     actions = [
-        RadialAction("💬", "指令", lambda: calls.append("chat")),
-        RadialAction("📷", "截屏", lambda: calls.append("shot")),
-        RadialAction("🗂", "整理桌面", lambda: calls.append("organize")),
+        RadialAction("cmd", "指令", lambda: calls.append("chat")),
+        RadialAction("shot", "截屏", lambda: calls.append("shot")),
+        RadialAction("organize", "整理桌面", lambda: calls.append("organize")),
     ]
     menu = RadialMenu(actions)
     ball.set_radial(menu)
@@ -108,6 +108,9 @@ def test_ball_double_click_triggers_callback(qapp) -> None:
 def test_radial_menu_buttons_and_actions(qapp) -> None:
     ball, menu, calls = _make_ball(qapp)
     assert len(menu.buttons) == 3
+    # 按钮使用线条图标（非 emoji 文字）
+    for button in menu.buttons:
+        assert not button.icon().isNull()
     menu.buttons[0].click()
     assert "chat" in calls
     menu.buttons[1].click()

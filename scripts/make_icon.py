@@ -1,6 +1,11 @@
-"""生成 Fairy 极简图标（蓝白线条），输出 assets/fairy.ico 与 assets/fairy-icon.png。
+"""生成 Fairy 极简图标（蓝白线条）。
 
-设计：深蓝线条在透明背景上构成「眼睛」意象——外环、内弧、瞳点。
+输出：
+- assets/fairy.ico 与 assets/fairy-icon.png（快捷方式 / exe 图标）
+- src/fairy/ui/assets/radial-{cmd,shot,organize}.png（放射菜单按钮图标，
+  白色线条、透明底，随包分发）
+
+设计：纯几何线条——外环/内弧/瞳点（眼睛）；指令气泡、相机、桌面格子。
 纯代码绘制（Pillow），不含任何外部素材，可重复生成：
 
     python scripts/make_icon.py
@@ -15,6 +20,7 @@ from PIL import Image, ImageDraw
 # 主色：克莱因蓝系
 BLUE = (37, 99, 235, 255)  # #2563EB
 BLUE_LIGHT = (96, 165, 250, 255)  # #60A5FA
+WHITE = (245, 248, 255, 255)  # 放射按钮上的线条色
 
 SIZE = 1024  # 大尺寸绘制后降采样，抗锯齿
 CENTER = SIZE // 2
@@ -28,9 +34,10 @@ PUPIL_R = 96  # 瞳点半径
 ROOT = Path(__file__).resolve().parent.parent
 OUT_ICO = ROOT / "assets" / "fairy.ico"
 OUT_PNG = ROOT / "assets" / "fairy-icon.png"
+OUT_RADIAL = ROOT / "src" / "fairy" / "ui" / "assets"
 
 
-def draw() -> Image.Image:
+def draw_app_icon() -> Image.Image:
     img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
 
@@ -57,12 +64,74 @@ def draw() -> Image.Image:
     return img
 
 
+# ------------------------------------------------------------------
+# 放射菜单按钮图标（512 绘制 → 128 输出，白色线条透明底）
+# ------------------------------------------------------------------
+_R = 512  # 放射图标绘制尺寸
+_RI = 40  # 线宽
+
+
+def _new() -> tuple[Image.Image, ImageDraw.ImageDraw]:
+    img = Image.new("RGBA", (_R, _R), (0, 0, 0, 0))
+    return img, ImageDraw.Draw(img)
+
+
+def draw_radial_cmd() -> Image.Image:
+    """指令：圆角对话框气泡（含小尾巴）。"""
+    img, d = _new()
+    x0, y0, x1, y1 = 72, 96, 440, 368
+    d.rounded_rectangle([x0, y0, x1, y1], radius=64, outline=WHITE, width=_RI)
+    # 尾巴（左下小三角）
+    d.polygon([(150, 368), (150, 440), (240, 368)], outline=WHITE, width=_RI)
+    # 框内两个点，示意输入
+    d.ellipse([200, 208, 248, 256], fill=WHITE)
+    d.ellipse([280, 208, 328, 256], fill=WHITE)
+    return img
+
+
+def draw_radial_shot() -> Image.Image:
+    """截屏：相机——圆角机身 + 顶部取景凸起 + 镜头圆。"""
+    img, d = _new()
+    # 取景器凸起
+    d.rounded_rectangle([196, 84, 316, 140], radius=20, outline=WHITE, width=_RI)
+    # 机身
+    d.rounded_rectangle([64, 140, 448, 400], radius=56, outline=WHITE, width=_RI)
+    # 镜头
+    r = 84
+    d.ellipse([256 - r, 270 - r, 256 + r, 270 + r], outline=WHITE, width=_RI)
+    return img
+
+
+def draw_radial_organize() -> Image.Image:
+    """整理桌面：2x2 图标格子，右下角实心（被归位的那个）。"""
+    img, d = _new()
+    cells = [(96, 96), (288, 96), (96, 288), (288, 288)]
+    w = 128
+    for i, (x, y) in enumerate(cells):
+        box = [x, y, x + w, y + w]
+        if i == 3:
+            d.rounded_rectangle(box, radius=28, fill=WHITE)
+        else:
+            d.rounded_rectangle(box, radius=28, outline=WHITE, width=_RI)
+    return img
+
+
 def main() -> None:
-    img = draw().resize((256, 256), Image.LANCZOS)
+    img = draw_app_icon().resize((256, 256), Image.LANCZOS)
     OUT_PNG.parent.mkdir(parents=True, exist_ok=True)
     img.save(OUT_PNG)
     img.save(OUT_ICO, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     print(f"已生成：{OUT_PNG} 与 {OUT_ICO}")
+
+    OUT_RADIAL.mkdir(parents=True, exist_ok=True)
+    for name, fn in (
+        ("radial-cmd.png", draw_radial_cmd),
+        ("radial-shot.png", draw_radial_shot),
+        ("radial-organize.png", draw_radial_organize),
+    ):
+        icon = fn().resize((128, 128), Image.LANCZOS)
+        icon.save(OUT_RADIAL / name)
+        print(f"已生成：{OUT_RADIAL / name}")
 
 
 if __name__ == "__main__":

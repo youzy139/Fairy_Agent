@@ -29,6 +29,7 @@ from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QGuiApplication,
+    QIcon,
     QMouseEvent,
     QPainter,
     QPainterPath,
@@ -76,6 +77,11 @@ ORGANIZE_INSTRUCTION = (
 def eye_image_path() -> str:
     """蓝眼睛图片路径（包内资源，PyInstaller 打包后同样可用）。"""
     return str(resources.files("fairy.ui.assets") / "eye.png")
+
+
+def radial_icon_path(name: str) -> str:
+    """放射菜单按钮图标路径（radial-cmd / radial-shot / radial-organize）。"""
+    return str(resources.files("fairy.ui.assets") / f"radial-{name}.png")
 
 
 class _PendingCall:
@@ -354,7 +360,7 @@ class CommandBar(QWidget):
 class RadialAction:
     """放射工具栏上的一个快捷动作。"""
 
-    icon: str  # 按钮上的图标文字（emoji）
+    icon: str  # 图标资源名（cmd / shot / organize，见 scripts/make_icon.py）
     label: str  # 提示文字
     handler: Callable[[], None]
 
@@ -363,6 +369,7 @@ class RadialMenu(QWidget):
     """围绕悬浮球弹出的放射快捷工具栏。
 
     容器整体透明且鼠标穿透，只有圆形按钮响应点击；再点一下悬浮球即收起。
+    按钮图标为极简白线条 PNG（scripts/make_icon.py 生成），不用 emoji。
     """
 
     def __init__(self, actions: list[RadialAction]) -> None:
@@ -382,12 +389,14 @@ class RadialMenu(QWidget):
         self._buttons: list[QPushButton] = []
         count = len(actions)
         for i, action in enumerate(actions):
-            button = QPushButton(action.icon, self)
+            button = QPushButton(self)
             button.setToolTip(action.label)
             button.setFixedSize(RADIAL_BUTTON_SIZE, RADIAL_BUTTON_SIZE)
+            button.setIcon(QIcon(radial_icon_path(action.icon)))
+            button.setIconSize(button.size() * 0.58)
             button.setStyleSheet(
-                "QPushButton {background: rgba(24, 48, 96, 235); color: white;"
-                f"border-radius: {RADIAL_BUTTON_SIZE // 2}px; font-size: 20px;"
+                "QPushButton {background: rgba(24, 48, 96, 235);"
+                f"border-radius: {RADIAL_BUTTON_SIZE // 2}px;"
                 "border: 1px solid rgba(120, 180, 255, 160);}"
                 "QPushButton:hover {background: rgba(50, 90, 170, 255);}"
             )
@@ -698,9 +707,11 @@ def run_gui(settings: Settings) -> int:
     )
 
     actions = [
-        RadialAction("💬", "指令", lambda: command_bar.show_near(ball)),
-        RadialAction("📷", "截屏", lambda: quick_screenshot(components, ball)),
-        RadialAction("🗂", "整理桌面", lambda: quick_organize_desktop(components, command_bar)),
+        RadialAction("cmd", "指令", lambda: command_bar.show_near(ball)),
+        RadialAction("shot", "截屏", lambda: quick_screenshot(components, ball)),
+        RadialAction(
+            "organize", "整理桌面", lambda: quick_organize_desktop(components, command_bar)
+        ),
     ]
     ball.set_radial(RadialMenu(actions))
     # 状态总线驱动眼睛动画
