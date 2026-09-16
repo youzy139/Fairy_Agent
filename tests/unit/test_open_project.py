@@ -129,3 +129,39 @@ def test_non_windows_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "linux")
     with pytest.raises(ToolError, match="暂未支持该平台"):
         OpenProjectTool().execute("fairy")
+
+
+def test_query_longer_than_dirname_matches(
+    project_root: Path, popen_calls: list[list[str]], fake_code: None
+) -> None:
+    """回归：用户说「kimi-desktop-pet 这个项目」时，查询词比目录名长也要命中。"""
+    result = OpenProjectTool().execute("kimi-desktop-pet项目")
+    assert popen_calls == [[FAKE_CODE, str(project_root / "kimi-desktop-pet")]]
+    assert "kimi-desktop-pet" in result
+
+
+def test_fuzzy_fallback_picks_closest(
+    project_root: Path, popen_calls: list[list[str]], fake_code: None
+) -> None:
+    """无包含匹配时，相似度 ≥ 0.4 的最接近者自动选用并在返回文本注明。"""
+    result = OpenProjectTool().execute("kimi desktop pet")  # 空格 vs 连字符
+    assert popen_calls == [[FAKE_CODE, str(project_root / "kimi-desktop-pet")]]
+    assert "相似度匹配" in result
+
+
+def test_editor_param_idea(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    popen_calls: list[list[str]],
+) -> None:
+    """editor=idea 时使用 _find_editor 解析的 idea64 路径。"""
+    fake_idea = str(Path("C:/Program Files/JetBrains/IntelliJ IDEA/bin/idea64.exe"))
+    monkeypatch.setattr(OpenProjectTool, "_find_editor", lambda self, editor: fake_idea)
+    result = OpenProjectTool().execute("fairy", editor="idea")
+    assert popen_calls == [[fake_idea, str(project_root / "fairy")]]
+    assert "IntelliJ IDEA" in result
+
+
+def test_editor_unsupported_raises(project_root: Path) -> None:
+    with pytest.raises(ToolError, match="暂不支持"):
+        OpenProjectTool().execute("fairy", editor="emacs")

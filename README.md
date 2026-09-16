@@ -304,7 +304,8 @@ pyinstaller Fairy.spec --noconfirm
 | `arrange_desktop` | 桌面图标语义分组摆位 | 危险（默认 dry_run 预览） | 中 |
 | `organize_desktop` | 桌面文件分类入文件夹 | 危险（默认 dry_run 预览） | 高 |
 | `open_app` | 按名启动应用/游戏 | 写入（白名单免确认） | 中 |
-| `open_project` | 用 VSCode 打开项目 | 写入 | 中 |
+| `open_project` | 用编辑器打开项目（VSCode/IDEA） | 写入 | 中 |
+| `web_search` | 网页搜索（找准确页面） | 网络 | 低 |
 | `clipboard_read` | 读剪贴板 | 只读 | 中 |
 | `clipboard_write` | 写剪贴板 | 写入 | 中 |
 | `browser_open` | 打开网址/收藏名 | 网络 | 低 |

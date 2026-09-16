@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import difflib
+import glob
 import os
 import shutil
 import subprocess
@@ -165,18 +166,30 @@ class OpenAppTool(Tool):
 
 
 class OpenProjectTool(Tool):
-    """用 VSCode 打开项目目录（write 级权限）。
+    """用编辑器打开项目目录（write 级权限）。
 
     在 ``FAIRY_PROJECT_ROOTS``（逗号分隔；默认 ``~/Desktop/project,~/projects,~/code``）
-    各根目录的第一层子目录中按名字包含匹配，difflib 取最接近者。
+    各根目录的第一层子目录中匹配项目名：先做双向包含匹配（目录名含查询词，
+    或查询词含目录名——用户说「kimi 桌宠这个项目」时查询词会比目录名长），
+    无结果时 difflib 模糊兜底（相似度 ≥ 0.4 自动选最接近者）。
+    支持编辑器参数：vscode（默认）/ idea。
     """
 
     name = "open_project"
-    description = "用 VSCode 打开指定名字的项目目录（如「用 VSCode 打开 kimi 桌宠项目」）"
+    description = (
+        "用编辑器打开指定名字的项目目录（如「用 VSCode 打开 kimi 桌宠项目」）。"
+        "项目名给目录名的一部分即可（如「kimi」）；editor 参数可选 vscode（默认）或 idea。"
+        "找不到时会返回最接近的候选名，请直接用候选名重试。"
+    )
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "项目名（目录名的子串即可，如「kimi」）"},
+            "editor": {
+                "type": "string",
+                "enum": ["vscode", "idea"],
+                "description": "用什么编辑器打开，默认 vscode",
+            },
         },
         "required": ["name"],
     }
@@ -210,7 +223,28 @@ class OpenProjectTool(Tool):
                 return str(fallback)
         raise ToolError("找不到 VSCode 的 code 命令（PATH 与常见安装路径均无），请先安装 VSCode。")
 
-    def execute(self, name: str) -> str:
+    def _find_editor(self, editor: str) -> str:
+        """按编辑器名定位可执行文件。"""
+        editor = (editor or "vscode").strip().lower()
+        if editor in ("vscode", "code"):
+            return self._find_code()
+        if editor == "idea":
+            found = shutil.which("idea64") or shutil.which("idea")
+            if found:
+                return found
+            # 常见安装路径：Program Files 与 JetBrains Toolbox
+            patterns = [
+                r"C:\Program Files\JetBrains\IntelliJ IDEA*\bin\idea64.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\JetBrains\Toolbox\apps\*\*\*\bin\idea64.exe"),
+            ]
+            for pattern in patterns:
+                hits = glob.glob(pattern)
+                if hits:
+                    return sorted(hits)[-1]  # 多版本取最后（通常最新）
+            raise ToolError("找不到 IntelliJ IDEA（idea64.exe）。可以用 VSCode 重试。")
+        raise ToolError(f"暂不支持的编辑器 {editor!r}，目前支持：vscode、idea。")
+
+    def execute(self, name: str, editor: str = "vscode") -> str:
         _ensure_windows()
         name = name.strip()
         if not name:
@@ -224,22 +258,35 @@ class OpenProjectTool(Tool):
             except OSError:
                 continue
 
-        matches = [p for p in subdirs if name.lower() in p.name.lower()]
+        query = name.lower()
+        # 双向包含：目录名含查询词，或查询词含目录名（「kimi桌宠这个项目」→「kimi桌宠」）
+        matches = [p for p in subdirs if query in p.name.lower() or p.name.lower() in query]
+        fuzzy_note = ""
         if not matches:
-            pool = sorted({p.name for p in subdirs})
-            closest = difflib.get_close_matches(name, pool, n=5, cutoff=0.0)
+            # 模糊兜底：相似度足够高时自动选最接近者
+            pool = sorted(subdirs, key=lambda p: _similarity(p.name, name), reverse=True)
+            if pool and _similarity(pool[0].name, name) >= 0.4:
+                matches = [pool[0]]
+                fuzzy_note = f"（按相似度匹配到「{pool[0].name}」）"
+        if not matches:
+            pool_names = sorted({p.name for p in subdirs})
+            closest = difflib.get_close_matches(name, pool_names, n=5, cutoff=0.0)
             hint = "、".join(closest) if closest else "（项目根目录为空或不存在）"
-            raise ToolError(f"找不到项目「{name}」。最接近的候选：{hint}")
+            raise ToolError(
+                f"找不到项目「{name}」。最接近的候选：{hint}。"
+                "请直接用候选名重试，无需带「项目」等后缀。"
+            )
 
         best = max(matches, key=lambda p: _similarity(p.name, name))
-        code = self._find_code()
+        exe = self._find_editor(editor)
         try:
-            subprocess.Popen([code, str(best)])
+            subprocess.Popen([exe, str(best)])
         except OSError as exc:
-            raise ToolError(f"启动 VSCode 失败：{exc}") from exc
+            raise ToolError(f"启动编辑器失败：{exc}") from exc
 
+        editor_name = "IntelliJ IDEA" if editor.lower() == "idea" else "VSCode"
         extra = ""
         if len(matches) > 1:
             others = "、".join(p.name for p in matches if p != best)
             extra = f"（共 {len(matches)} 个匹配，已选择最接近的「{best.name}」；其余：{others}）"
-        return f"已用 VSCode 打开项目「{best.name}」：{best}{extra}"
+        return f"已用 {editor_name} 打开项目「{best.name}」：{best}{fuzzy_note}{extra}"
