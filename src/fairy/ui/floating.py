@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -82,6 +83,86 @@ def eye_image_path() -> str:
 def radial_icon_path(name: str) -> str:
     """放射菜单按钮图标路径（radial-cmd / radial-shot / radial-organize）。"""
     return str(resources.files("fairy.ui.assets") / f"radial-{name}.png")
+
+
+def app_icon_path() -> str:
+    """托盘/通知用的线条版 app 图标路径。"""
+    return str(resources.files("fairy.ui.assets") / "app-icon.png")
+
+
+def parse_hotkey(accel: str) -> tuple[int, ...]:
+    """把「ctrl+shift+space」解析为虚拟键码元组（Windows VK 码）。
+
+    支持修饰键 ctrl/alt/shift/win 与字母、数字、space/enter/tab/esc/f1-f12。
+    无法解析时抛 ValueError。
+    """
+    mods = {"ctrl": 0xA2, "alt": 0xA4, "shift": 0xA0, "win": 0x5B}
+    specials = {"space": 0x20, "enter": 0x0D, "tab": 0x09, "esc": 0x1B}
+    specials |= {f"f{i}": 0x70 + i - 1 for i in range(1, 13)}
+
+    parts = [p.strip().lower() for p in accel.split("+") if p.strip()]
+    if not parts:
+        raise ValueError(f"热键为空：{accel!r}")
+    codes: list[int] = []
+    for part in parts:
+        if part in mods:
+            codes.append(mods[part])
+        elif part in specials:
+            codes.append(specials[part])
+        elif len(part) == 1 and part.isalpha():
+            codes.append(ord(part.upper()))
+        elif len(part) == 1 and part.isdigit():
+            codes.append(ord(part))
+        else:
+            raise ValueError(f"无法识别的热键成分 {part!r}（完整值：{accel!r}）")
+    return tuple(codes)
+
+
+class HotkeyManager(QObject):
+    """全局热键：轮询 GetAsyncKeyState 检测组合键按下（Windows）。
+
+    默认热键 Ctrl+Shift+Space，可用环境变量 FAIRY_HOTKEY 覆盖。
+    非 Windows 平台自动禁用（no-op）。
+    """
+
+    triggered = Signal()
+
+    def __init__(
+        self,
+        accel: str = "ctrl+shift+space",
+        poll_ms: int = 120,
+        pressed_fn: Callable[[int], bool] | None = None,
+    ) -> None:
+        super().__init__()
+        self._codes = parse_hotkey(accel)
+        self._latched = False
+        if pressed_fn is not None:
+            self._pressed = pressed_fn
+        elif sys.platform == "win32":
+            import ctypes
+
+            get_state = ctypes.windll.user32.GetAsyncKeyState
+            get_state.restype = ctypes.c_short
+            self._pressed = lambda vk: bool(get_state(vk) & 0x8000)
+        else:
+            self._pressed = lambda vk: False  # 非 Windows：永不触发
+        self._timer = QTimer(self)
+        self._timer.setInterval(poll_ms)
+        self._timer.timeout.connect(self._poll)
+
+    def start(self) -> None:
+        self._timer.start()
+
+    def stop(self) -> None:
+        self._timer.stop()
+
+    def _poll(self) -> None:
+        pressed = all(self._pressed(vk) for vk in self._codes)
+        if pressed and not self._latched:
+            self._latched = True
+            self.triggered.emit()
+        elif not pressed:
+            self._latched = False
 
 
 class _PendingCall:
@@ -476,6 +557,16 @@ class FloatingBall(QWidget):
     def set_radial(self, menu: RadialMenu) -> None:
         self._radial = menu
 
+    def toggle_visibility(self) -> None:
+        """显示/隐藏悬浮球（托盘菜单用）；隐藏时顺带收起放射菜单。"""
+        if self.isVisible():
+            if self._radial is not None:
+                self._radial.hide()
+            self.hide()
+        else:
+            self.show()
+            self.raise_()
+
     def set_state(self, state: str) -> None:
         """切换眼睛状态（接收 emitter.stateChanged 信号）。"""
         if state not in self.STATES or state == self._state:
@@ -694,6 +785,24 @@ def quick_organize_desktop(components: GuiComponents, command_bar: CommandBar) -
     command_bar.run_command(ORGANIZE_INSTRUCTION)
 
 
+def setup_tray(app: QApplication, ball: FloatingBall, command_bar: CommandBar) -> Any:
+    """系统托盘：指令入口、悬浮球显隐、退出。无可用托盘时返回 None。"""
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    if not QSystemTrayIcon.isSystemTrayAvailable():
+        return None
+    tray = QSystemTrayIcon(QIcon(app_icon_path()), app)
+    menu = QMenu()
+    menu.addAction("指令", lambda: command_bar.show_near(ball))
+    menu.addAction("显示 / 隐藏悬浮球", ball.toggle_visibility)
+    menu.addSeparator()
+    menu.addAction("退出 Fairy", app.quit)
+    tray.setContextMenu(menu)
+    tray.setToolTip("Fairy Agent")
+    tray.show()
+    return tray
+
+
 def run_gui(settings: Settings) -> int:
     """启动悬浮球 GUI。"""
     app = QApplication.instance() or QApplication([])
@@ -717,8 +826,15 @@ def run_gui(settings: Settings) -> int:
     # 状态总线驱动眼睛动画
     components.emitter.stateChanged.connect(ball.set_state)
 
+    # 系统托盘与全局热键（默认 Ctrl+Shift+Space 召唤指令条）
+    setup_tray(app, ball, command_bar)
+    hotkey = HotkeyManager(os.environ.get("FAIRY_HOTKEY", "ctrl+shift+space"))
+    hotkey.triggered.connect(lambda: command_bar.show_near(ball))
+    hotkey.start()
+
     ball.show()
     exit_code = app.exec()
+    hotkey.stop()
     if components.memory is not None:
         components.memory.close()
     return exit_code

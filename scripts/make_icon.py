@@ -124,6 +124,8 @@ def main() -> None:
     print(f"已生成：{OUT_PNG} 与 {OUT_ICO}")
 
     OUT_RADIAL.mkdir(parents=True, exist_ok=True)
+    # 托盘 / 通知用的 app 图标也进包内资源
+    img.save(OUT_RADIAL / "app-icon.png")
     for name, fn in (
         ("radial-cmd.png", draw_radial_cmd),
         ("radial-shot.png", draw_radial_shot),

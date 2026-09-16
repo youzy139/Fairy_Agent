@@ -301,3 +301,67 @@ def test_command_bar_drives_ball_state(qapp, tmp_path: Path) -> None:
             break
     assert states[0] == "thinking"
     assert states[-1] == "ok"
+
+
+# --- 全局热键与托盘 ---
+
+
+def test_parse_hotkey_basic() -> None:
+    from fairy.ui.floating import parse_hotkey
+
+    assert parse_hotkey("ctrl+shift+space") == (0xA2, 0xA0, 0x20)
+    assert parse_hotkey("Ctrl+Alt+K") == (0xA2, 0xA4, ord("K"))
+    assert parse_hotkey("f5") == (0x74,)
+    with pytest.raises(ValueError, match="无法识别"):
+        parse_hotkey("ctrl+banana")
+    with pytest.raises(ValueError):
+        parse_hotkey("")
+
+
+def test_hotkey_triggers_once_per_press(qapp) -> None:
+    """组合键按住期间只触发一次，松开后可再次触发。"""
+    from fairy.ui.floating import HotkeyManager
+
+    pressed_keys: set[int] = set()
+    manager = HotkeyManager("ctrl+space", poll_ms=10, pressed_fn=lambda vk: vk in pressed_keys)
+    fired: list[bool] = []
+    manager.triggered.connect(lambda: fired.append(True))
+    manager.start()
+
+    pressed_keys.update({0xA2, 0x20})  # 按下 ctrl+space
+    QTest.qWait(100)
+    assert len(fired) == 1
+
+    # 继续按住不重复触发
+    QTest.qWait(100)
+    assert len(fired) == 1
+
+    pressed_keys.clear()  # 松开
+    QTest.qWait(60)
+    pressed_keys.update({0xA2, 0x20})  # 再次按下
+    QTest.qWait(100)
+    assert len(fired) == 2
+    manager.stop()
+
+
+def test_ball_toggle_visibility(qapp) -> None:
+    ball, menu, _ = _make_ball(qapp)
+    ball.show()
+    menu.toggle(ball)
+    ball.toggle_visibility()  # 隐藏球应连带收起菜单
+    assert not ball.isVisible()
+    assert not menu.isVisible()
+    ball.toggle_visibility()
+    assert ball.isVisible()
+
+
+def test_setup_tray_offscreen(qapp, tmp_path: Path) -> None:
+    """离屏/无托盘环境返回 None 而不是崩溃。"""
+    from fairy.ui.floating import setup_tray
+
+    ball, _, _ = _make_ball(qapp)
+    bar = CommandBar(_components(tmp_path))
+    tray = setup_tray(qapp, ball, bar)
+    if tray is None:
+        return  # 无托盘环境，符合预期
+    tray.hide()  # 有托盘则用完收起来
