@@ -323,6 +323,7 @@ class CommandBar(QWidget):
         self._components = components
         self._worker: AgentWorker | None = None
         self._anchor: QWidget | None = None
+        self._tray: Any = None  # QSystemTrayIcon | None，用于后台完成通知
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -430,13 +431,24 @@ class CommandBar(QWidget):
             self._set_reply(f"⚙ 正在调用工具：{name}")
             self._components.emitter.stateChanged.emit("working")
 
+    def set_tray(self, tray: Any) -> None:
+        """注入托盘图标，用于「指令条已收起时」的完成通知。"""
+        self._tray = tray
+
+    def _notify_if_hidden(self, title: str, text: str) -> None:
+        """指令条不可见时发托盘通知（长任务完成提醒）；可见时内联展示已足够。"""
+        if self._tray is not None and not self.isVisible():
+            self._tray.showMessage(title, text[:120])
+
     def _on_reply(self, reply: str) -> None:
         self._set_reply(reply or "（空回复）")
         self._components.emitter.stateChanged.emit("ok")
+        self._notify_if_hidden("Fairy 执行完成", reply or "")
 
     def _on_error(self, message: str) -> None:
         self._set_reply(f"出错了——{message}")
         self._components.emitter.stateChanged.emit("error")
+        self._notify_if_hidden("Fairy 出错", message)
 
     def _on_worker_done(self) -> None:
         if self._worker is not None:
@@ -893,7 +905,8 @@ def run_gui(settings: Settings) -> int:
     components.emitter.stateChanged.connect(ball.set_state)
 
     # 系统托盘与全局热键（默认 Ctrl+Shift+Space 召唤指令条）
-    setup_tray(app, ball, command_bar)
+    tray = setup_tray(app, ball, command_bar)
+    command_bar.set_tray(tray)
     hotkey = HotkeyManager(os.environ.get("FAIRY_HOTKEY", "ctrl+shift+space"))
     hotkey.triggered.connect(lambda: command_bar.show_near(ball))
     hotkey.start()

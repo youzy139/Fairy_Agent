@@ -398,3 +398,34 @@ def test_setup_tray_offscreen(qapp, tmp_path: Path) -> None:
     if tray is None:
         return  # 无托盘环境，符合预期
     tray.hide()  # 有托盘则用完收起来
+
+
+def test_notify_when_bar_hidden(qapp, tmp_path: Path) -> None:
+    """指令条收起时，完成/出错会发托盘通知；可见时不发。"""
+    calls: list[tuple[str, str]] = []
+    tray = SimpleNamespace(showMessage=lambda title, text: calls.append((title, text)))
+    bar = CommandBar(_components(tmp_path))
+    bar.set_tray(tray)
+
+    bar.hide()
+    bar._notify_if_hidden("Fairy 执行完成", "整理好了")
+    assert calls == [("Fairy 执行完成", "整理好了")]
+
+    bar.show()
+    bar._notify_if_hidden("Fairy 执行完成", "又来了")
+    assert len(calls) == 1  # 可见时不重复通知
+
+
+def test_reply_triggers_notification_when_hidden(qapp, tmp_path: Path) -> None:
+    """整条链路：worker 完成 + 指令条隐藏 → 托盘收到通知。"""
+    calls: list[tuple[str, str]] = []
+    tray = SimpleNamespace(showMessage=lambda title, text: calls.append((title, text)))
+    bar = CommandBar(_components(tmp_path, _stub_agent("完成了")))
+    bar.set_tray(tray)
+    bar._input.setText("干活")
+    bar._send()  # bar 未 show，处于隐藏状态
+    for _ in range(50):
+        QTest.qWait(20)
+        if bar._worker is None:
+            break
+    assert calls and "完成了" in calls[0][1]
