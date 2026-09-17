@@ -27,6 +27,13 @@ _PRESETS: list[tuple[str, str, str, bool, str]] = [
         "sk-kimi-...（Kimi Code 控制台创建）",
     ),
     (
+        "DeepSeek（深度求索）",
+        "https://api.deepseek.com/v1",
+        "deepseek-flash",
+        True,
+        "sk-...（platform.deepseek.com 创建）",
+    ),
+    (
         "Ollama 本地模型",
         "http://localhost:11434/v1",
         "qwen2.5:7b",

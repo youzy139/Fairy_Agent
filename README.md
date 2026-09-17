@@ -42,7 +42,7 @@ Fairy 是一个运行在用户电脑上的 AI 代理，不是单纯的聊天机�
 - [x] 剪贴板读写、打开网页（含网址收藏）、窗口管理
 - [x] `fairy init` 初始化向导（端点预设：OpenAI / Kimi Code / Ollama）
 - [x] 持久记忆：SQLite 会话存储、用户偏好、别名/收藏（向量检索待做）
-- [ ] 权限策略：路径白名单、沙箱（应用白名单与命令黑名单已内置）
+- [ ] 权限策略：沙箱（应用/路径/命令白名单与命令黑名单已完成）
 - [ ] 语音唤醒、STT、TTS
 - [x] 蓝眼睛状态动画（待机呼吸 / 思考旋转 / 工具旋转加速 / 出错红闪）
 - [x] 系统托盘与全局热键（默认 Ctrl+Shift+Space 召唤指令条，`FAIRY_HOTKEY` 可改）
@@ -286,6 +286,9 @@ pyinstaller Fairy.spec --noconfirm
 | `FAIRY_EMBEDDING_MODEL` | 无 | 向量模型 |
 | `FAIRY_APP_WHITELIST` | 无 | 免确认直接启动的应用白名单（逗号分隔） |
 | `FAIRY_PROJECT_ROOTS` | `~/Desktop/project,~/projects,~/code` | open_project 的项目扫描根目录 |
+| `FAIRY_HOTKEY` | `ctrl+shift+space` | 召唤指令条的全局热键 |
+| `FAIRY_PATH_WHITELIST` | 无 | 读类工具的额外允许目录（写工具不适用） |
+| `FAIRY_COMMAND_WHITELIST` | 无 | run_command 降为单次确认的命令前缀 |
 
 > 密钥不要提交到 Git。推荐本地 `.env`，生产环境使用系统 keyring 或密钥管理服务。
 
@@ -471,7 +474,7 @@ tests/
 
 - [x] 权限策略引擎（按级别确认流程）
 - [x] 审计日志
-- [ ] 路径/命令白名单
+- [x] 路径/命令白名单（应用白名单免确认、读路径白名单、命令白名单降级）
 - [ ] 沙箱适配
 
 ### v0.4 语音

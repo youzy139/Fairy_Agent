@@ -160,10 +160,19 @@ def test_write_auto_allow_false_still_confirms() -> None:
     confirm.assert_called_once()
 
 
-def test_auto_allow_only_applies_to_write() -> None:
-    """dangerous 级即使 auto_allow 为 True 也不豁免二次确认。"""
+def test_auto_allow_dangerous_downgrades_to_single_confirm() -> None:
+    """dangerous 级 auto_allow 为 True 时降为单次确认（免除确认词，但仍需 y/N）。"""
     engine, confirm, phrase = _engine(confirm_ret=True, phrase_ret=CONFIRM_PHRASE)
     decision = engine.check(_WhitelistTool("dangerous", True), {})
+    assert decision.allowed is True
+    confirm.assert_called_once()
+    phrase.assert_not_called()
+
+
+def test_dangerous_without_auto_allow_still_double_confirm() -> None:
+    """dangerous 级未命中白名单时仍保留二次确认。"""
+    engine, confirm, phrase = _engine(confirm_ret=True, phrase_ret=CONFIRM_PHRASE)
+    decision = engine.check(_WhitelistTool("dangerous", False), {})
     assert decision.allowed is True
     confirm.assert_called_once()
     phrase.assert_called_once()

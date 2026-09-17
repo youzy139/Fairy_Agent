@@ -896,9 +896,6 @@ def run_gui(settings: Settings) -> int:
     actions = [
         RadialAction("cmd", "指令", lambda: command_bar.show_near(ball)),
         RadialAction("shot", "截屏", lambda: quick_screenshot(components, ball)),
-        RadialAction(
-            "organize", "整理桌面", lambda: quick_organize_desktop(components, command_bar)
-        ),
     ]
     ball.set_radial(RadialMenu(actions))
     # 状态总线驱动眼睛动画

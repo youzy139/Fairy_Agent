@@ -62,11 +62,18 @@ def build_registry(settings: Settings, workspace: str, memory: Any = None) -> To
     )
 
     registry = ToolRegistry()
-    registry.register(ListDirTool(workspace))
-    registry.register(ReadFileTool(workspace))
+    extra = settings.path_whitelist
+    registry.register(ListDirTool(workspace, extra_roots=extra))
+    registry.register(ReadFileTool(workspace, extra_roots=extra))
     registry.register(WriteFileTool(workspace))
-    registry.register(SearchFilesTool(workspace))
-    registry.register(RunCommandTool(workspace, allow_shell=settings.allow_shell))
+    registry.register(SearchFilesTool(workspace, extra_roots=extra))
+    registry.register(
+        RunCommandTool(
+            workspace,
+            allow_shell=settings.allow_shell,
+            command_whitelist=settings.command_whitelist,
+        )
+    )
     registry.register(ScreenshotTool(workspace))
     registry.register(OrganizeDesktopTool())
     registry.register(ListDesktopIconsTool())

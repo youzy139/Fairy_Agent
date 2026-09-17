@@ -70,8 +70,29 @@ def is_blacklisted(command: str) -> str | None:
     return None
 
 
+def is_whitelisted(command: str, prefixes: list[str] | None) -> bool:
+    """命令白名单（FAIRY_COMMAND_WHITELIST）：所有拼接片段都命中前缀才算。
+
+    如白名单含 ``git status``，则 ``git status && git status`` 视为白名单，
+    但 ``git status && rm x`` 不算（rm x 不在名单）。黑名单优先于白名单。
+    """
+    if not prefixes:
+        return False
+    if is_blacklisted(command) is not None:
+        return False
+    lowered_prefixes = [p.strip().lower() for p in prefixes if p.strip()]
+    segments = _segments(command)
+    return bool(segments) and all(
+        any(seg.startswith(prefix) for prefix in lowered_prefixes) for seg in segments
+    )
+
+
 class RunCommandTool(Tool):
-    """执行 Shell 命令（dangerous 级，默认关闭并需二次确认）。"""
+    """执行 Shell 命令（dangerous 级，默认关闭并需二次确认）。
+
+    ``command_whitelist``（FAIRY_COMMAND_WHITELIST，逗号分隔的命令前缀）
+    命中的命令降级为单次确认（经 auto_allow 钩子），黑名单依旧优先拒绝。
+    """
 
     name = "run_command"
     description = "在工作区执行一条 Shell 命令（危险操作，默认关闭，需要二次确认）"
@@ -88,9 +109,19 @@ class RunCommandTool(Tool):
     }
     permission: PermissionLevel = "dangerous"
 
-    def __init__(self, workspace: str, allow_shell: bool = False) -> None:
+    def __init__(
+        self,
+        workspace: str,
+        allow_shell: bool = False,
+        command_whitelist: list[str] | None = None,
+    ) -> None:
         self._workspace = workspace
         self._allow_shell = allow_shell
+        self._whitelist = [w.strip().lower() for w in (command_whitelist or []) if w.strip()]
+
+    def auto_allow(self, args: dict[str, Any]) -> bool:
+        """白名单命令免于二次确认（仍需一次 y/N 确认，见 PolicyEngine）。"""
+        return is_whitelisted(str(args.get("command", "")), self._whitelist)
 
     def execute(self, command: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> str:
         if not self._allow_shell:

@@ -79,6 +79,10 @@ class PolicyEngine:
             if not self._confirm_dangerous:
                 # 配置关闭了二次确认，降级为单次确认（不推荐）
                 return PolicyDecision(allowed=True)
+            # 白名单内（如 FAIRY_COMMAND_WHITELIST 命中的命令）降为单次确认
+            auto_allow = getattr(tool, "auto_allow", None)
+            if callable(auto_allow) and auto_allow(args):
+                return PolicyDecision(allowed=True, reason="白名单内，已单次确认放行。")
             phrase_prompt = f"二次确认：请输入「{CONFIRM_PHRASE}」以继续："
             if self._confirm_phrase(phrase_prompt).strip() == CONFIRM_PHRASE:
                 return PolicyDecision(allowed=True)

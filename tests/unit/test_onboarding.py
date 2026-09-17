@@ -32,7 +32,7 @@ def test_init_openai_preset_default_choice(tmp_path: Path) -> None:
 
 
 def test_init_ollama_no_key_needed(tmp_path: Path) -> None:
-    code, _, env = _run(tmp_path, ["3"])
+    code, _, env = _run(tmp_path, ["4"])
     assert code == 0
     content = env.read_text(encoding="utf-8")
     assert "OPENAI_API_KEY=ollama" in content
@@ -40,11 +40,20 @@ def test_init_ollama_no_key_needed(tmp_path: Path) -> None:
 
 
 def test_init_custom_endpoint(tmp_path: Path) -> None:
-    code, _, env = _run(tmp_path, ["4", "http://192.168.1.10:8000/v1", "my-model", "sk-x"])
+    code, _, env = _run(tmp_path, ["5", "http://192.168.1.10:8000/v1", "my-model", "sk-x"])
     assert code == 0
     content = env.read_text(encoding="utf-8")
     assert "http://192.168.1.10:8000/v1" in content
     assert "my-model" in content
+
+
+def test_init_deepseek_preset(tmp_path: Path) -> None:
+    """DeepSeek 预设（第 3 项）：V4.1 Flash 通过 deepseek-flash 调用。"""
+    code, _, env = _run(tmp_path, ["3", "sk-ds-test"])
+    assert code == 0
+    content = env.read_text(encoding="utf-8")
+    assert "OPENAI_BASE_URL=https://api.deepseek.com/v1" in content
+    assert "FAIRY_MODEL=deepseek-flash" in content
 
 
 def test_init_existing_env_requires_confirm(tmp_path: Path) -> None:

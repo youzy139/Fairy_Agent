@@ -45,11 +45,16 @@ class SearchFilesTool(Tool):
     }
     permission: PermissionLevel = "read"
 
-    def __init__(self, workspace: str | os.PathLike[str]) -> None:
+    def __init__(
+        self,
+        workspace: str | os.PathLike[str],
+        extra_roots: list[Path] | None = None,
+    ) -> None:
         self._workspace = Path(workspace)
+        self._extra_roots = extra_roots or []
 
     def execute(self, pattern: str, keyword: str | None = None, path: str = ".") -> str:
-        start = _resolve_in_workspace(self._workspace, path)
+        start = _resolve_in_workspace(self._workspace, path, self._extra_roots)
         if not start.exists():
             raise ToolError(f"目录不存在：{path!r}")
         if not start.is_dir():
@@ -65,14 +70,23 @@ class SearchFilesTool(Tool):
                     break
                 if not candidate.is_file():
                     continue
-                # glob 不会逃出 start，但符号链接可能指向工作区外，逐一校验
+                # glob 不会逃出 start，但符号链接可能指向允许范围外，逐一校验
                 resolved = candidate.resolve()
                 workspace_resolved = self._workspace.resolve()
-                if not (resolved == workspace_resolved or workspace_resolved in resolved.parents):
+                allowed_roots = [
+                    workspace_resolved,
+                    *(root.resolve() for root in self._extra_roots),
+                ]
+                if not any(resolved == root or root in resolved.parents for root in allowed_roots):
                     continue
                 if keyword is not None and not _contains_keyword(resolved, keyword):
                     continue
-                matches.append(str(resolved.relative_to(workspace_resolved)))
+                # 白名单目录内的结果用绝对路径展示（无法相对工作区表示）
+                try:
+                    display = str(resolved.relative_to(workspace_resolved))
+                except ValueError:
+                    display = str(resolved)
+                matches.append(display)
         except (OSError, ValueError) as exc:
             raise ToolError(f"搜索失败：{exc}") from exc
 

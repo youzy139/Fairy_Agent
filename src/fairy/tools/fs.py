@@ -16,20 +16,29 @@ from fairy.tools.base import PermissionLevel, Tool, ToolError
 MAX_READ_BYTES = 256 * 1024
 
 
-def _resolve_in_workspace(workspace: Path, raw_path: str) -> Path:
-    """将用户路径解析为工作区内的绝对路径。
+def _resolve_in_workspace(
+    workspace: Path,
+    raw_path: str,
+    extra_roots: list[Path] | None = None,
+) -> Path:
+    """将用户路径解析为允许范围内的绝对路径。
 
     ``Path.resolve()`` 会同时展开 ``..`` 与符号链接，因此符号链接逃逸
-    也会在 ``is_relative_to`` 检查中被拒绝。
+    也会在边界检查中被拒绝。``extra_roots``（FAIRY_PATH_WHITELIST）是
+    工作区之外额外允许访问的目录，仅读工具传入；写工具不传，保持工作区边界。
     """
     workspace_resolved = workspace.resolve()
     candidate = Path(raw_path)
     if not candidate.is_absolute():
         candidate = workspace_resolved / candidate
     resolved = candidate.resolve()
-    if not (resolved == workspace_resolved or workspace_resolved in resolved.parents):
-        raise ToolError(f"路径越权：{raw_path!r} 不在工作区 {workspace_resolved} 内，已拒绝访问。")
-    return resolved
+
+    allowed_roots = [workspace_resolved, *(extra_roots or [])]
+    for root in allowed_roots:
+        root = root.resolve()
+        if resolved == root or root in resolved.parents:
+            return resolved
+    raise ToolError(f"路径越权：{raw_path!r} 不在允许范围内，已拒绝访问。")
 
 
 class ListDirTool(Tool):
@@ -49,11 +58,16 @@ class ListDirTool(Tool):
     }
     permission: PermissionLevel = "read"
 
-    def __init__(self, workspace: str | os.PathLike[str]) -> None:
+    def __init__(
+        self,
+        workspace: str | os.PathLike[str],
+        extra_roots: list[Path] | None = None,
+    ) -> None:
         self._workspace = Path(workspace)
+        self._extra_roots = extra_roots or []
 
     def execute(self, path: str = ".") -> str:
-        target = _resolve_in_workspace(self._workspace, path)
+        target = _resolve_in_workspace(self._workspace, path, self._extra_roots)
         if not target.exists():
             raise ToolError(f"目录不存在：{path!r}")
         if not target.is_dir():
@@ -77,11 +91,16 @@ class ReadFileTool(Tool):
     }
     permission: PermissionLevel = "read"
 
-    def __init__(self, workspace: str | os.PathLike[str]) -> None:
+    def __init__(
+        self,
+        workspace: str | os.PathLike[str],
+        extra_roots: list[Path] | None = None,
+    ) -> None:
         self._workspace = Path(workspace)
+        self._extra_roots = extra_roots or []
 
     def execute(self, path: str) -> str:
-        target = _resolve_in_workspace(self._workspace, path)
+        target = _resolve_in_workspace(self._workspace, path, self._extra_roots)
         if not target.exists():
             raise ToolError(f"文件不存在：{path!r}")
         if not target.is_file():

@@ -37,6 +37,22 @@ class Settings:
     sandbox: bool = False
     memory_backend: str = "sqlite"
     embedding_model: str | None = None
+    path_whitelist: list[Path] | None = None  # 读工具的额外允许目录
+    command_whitelist: list[str] | None = None  # run_command 免二次确认的命令前缀
+
+
+def _parse_path_list(raw: str | None) -> list[Path] | None:
+    """解析逗号分隔的路径列表（支持 ~ 展开），空值返回 None。"""
+    if not raw:
+        return None
+    return [Path(item.strip()).expanduser() for item in raw.split(",") if item.strip()]
+
+
+def _parse_str_list(raw: str | None) -> list[str] | None:
+    """解析逗号分隔的字符串列表，空值返回 None。"""
+    if not raw:
+        return None
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 def load_settings(dotenv_path: str | os.PathLike[str] | None = None) -> Settings:
@@ -65,4 +81,6 @@ def load_settings(dotenv_path: str | os.PathLike[str] | None = None) -> Settings
         sandbox=parse_bool(os.environ.get("FAIRY_SANDBOX"), default=False),
         memory_backend=os.environ.get("FAIRY_MEMORY_BACKEND", "sqlite"),
         embedding_model=os.environ.get("FAIRY_EMBEDDING_MODEL") or None,
+        path_whitelist=_parse_path_list(os.environ.get("FAIRY_PATH_WHITELIST")),
+        command_whitelist=_parse_str_list(os.environ.get("FAIRY_COMMAND_WHITELIST")),
     )
