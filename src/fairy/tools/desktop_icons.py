@@ -15,9 +15,12 @@ from typing import Any
 
 from fairy.tools.base import PermissionLevel, Tool, ToolError
 
-# 布局参数：起点 (40, 40)，每组一列从左到右，组内从上到下
-_START_X = 40
-_START_Y = 40
+# 布局参数：每组一列从左到右，组内从上到下。
+# 注意：起点不是固定值——多显示器下桌面 ListView 的 (0,0) 可能落在副屏区域，
+# 固定起点会把图标「搬」到用户看不到的屏幕上。布局原点改为现有图标包围盒的
+# 左上角，即「在图标当前所在区域原地重排」（见 execute 中的计算）。
+_FALLBACK_X = 40  # 防御用兜底起点（桌面无图标时不会走到布局）
+_FALLBACK_Y = 40
 _COLUMN_WIDTH = 110
 _ROW_HEIGHT = 100
 _OTHER_LABEL = "其他"
@@ -74,16 +77,19 @@ def _match_icons(
 
 def _assign_positions(
     plan: list[tuple[str, list[dict]]],
+    origin_x: int = _FALLBACK_X,
+    origin_y: int = _FALLBACK_Y,
 ) -> list[tuple[str, list[tuple[dict, int, int]]]]:
     """按布局算法为每个图标计算目标坐标。
 
     返回 [(label, [(icon, x, y), ...]), ...]，每组一列从左到右，
-    组内按成员顺序从上到下。
+    组内按成员顺序从上到下。布局原点由调用方给出（现有图标包围盒左上角），
+    保证多显示器下也在图标当前所在区域原地重排。
     """
     result: list[tuple[str, list[tuple[dict, int, int]]]] = []
     for col, (label, members) in enumerate(plan):
-        x = _START_X + col * _COLUMN_WIDTH
-        column = [(icon, x, _START_Y + row * _ROW_HEIGHT) for row, icon in enumerate(members)]
+        x = origin_x + col * _COLUMN_WIDTH
+        column = [(icon, x, origin_y + row * _ROW_HEIGHT) for row, icon in enumerate(members)]
         result.append((label, column))
     return result
 
@@ -188,10 +194,14 @@ class ArrangeDesktopTool(Tool):
             return "桌面上没有图标可排列。"
 
         plan, warnings = _match_icons(groups, desktop_icons)
-        columns = _assign_positions(plan)
+        # 布局原点 = 现有图标包围盒左上角：多显示器下 ListView 客户端 (0,0)
+        # 可能落在副屏区域，原地重排才能保证图标留在用户正在看的屏幕上
+        origin_x = min(icon["x"] for icon in desktop_icons)
+        origin_y = min(icon["y"] for icon in desktop_icons)
+        columns = _assign_positions(plan, origin_x, origin_y)
 
         lines = [
-            f"桌面图标排版方案（起点 ({_START_X}, {_START_Y})，"
+            f"桌面图标排版方案（起点 ({origin_x}, {origin_y})，"
             f"列间距 {_COLUMN_WIDTH}，行间距 {_ROW_HEIGHT}）："
         ]
         for col, (label, placements) in enumerate(columns):

@@ -39,7 +39,7 @@ Fairy Agent 是一个运行在用户电脑上的**本地优先、权限可控、
 - 平台：Windows 完整支持；macOS/Linux 仅通用工具可用（桌面类工具 Windows 限定）
 
 尚未实现：`agent/planner.py`、`agent/prompt.py`、`llm/providers.py`、
-`safety/sandbox.py`、向量检索、系统托盘、
+`safety/sandbox.py`、向量检索、
 `docs/architecture.md`、`docs/tools.md`。
 
 因此：

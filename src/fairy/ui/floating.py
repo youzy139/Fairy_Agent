@@ -472,6 +472,46 @@ class RadialAction:
     handler: Callable[[], None]
 
 
+class _RadialButton(QPushButton):
+    """放射菜单按钮：完全自绘（Qt 样式表的圆形边框在高 DPI 下会抖成白点）。
+
+    QPainter 直接画椭圆背景 + 抗锯齿外圈 + 居中图标，任何缩放比下都平滑。
+    """
+
+    def paintEvent(self, event: Any) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(2, 2, -2, -2)
+
+        # 背景圆（悬停变亮）
+        fill = QColor(50, 90, 170) if self.underMouse() else QColor(24, 48, 96)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(fill)
+        painter.drawEllipse(rect)
+
+        # 外圈：QPainter 路径抗锯齿，不走样式表边框
+        pen = painter.pen()
+        pen.setColor(QColor(120, 180, 255, 220))
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(rect)
+
+        # 图标居中（按设备像素比取高清 pixmap，200% DPI 下不糊）
+        if not self.icon().isNull():
+            dpr = self.devicePixelRatioF()
+            pix = self.icon().pixmap(self.iconSize() * dpr)
+            pix.setDevicePixelRatio(dpr)
+            target = self.rect().adjusted(
+                int(self.width() * 0.21),
+                int(self.height() * 0.21),
+                -int(self.width() * 0.21),
+                -int(self.height() * 0.21),
+            )
+            painter.drawPixmap(target, pix, pix.rect().toRectF().toRect())
+        painter.end()
+
+
 class RadialMenu(QWidget):
     """围绕悬浮球弹出的放射快捷工具栏。
 
@@ -496,17 +536,11 @@ class RadialMenu(QWidget):
         self._buttons: list[QPushButton] = []
         count = len(actions)
         for i, action in enumerate(actions):
-            button = QPushButton(self)
+            button = _RadialButton(self)
             button.setToolTip(action.label)
             button.setFixedSize(RADIAL_BUTTON_SIZE, RADIAL_BUTTON_SIZE)
             button.setIcon(QIcon(radial_icon_path(action.icon)))
             button.setIconSize(button.size() * 0.58)
-            button.setStyleSheet(
-                "QPushButton {background: rgba(24, 48, 96, 235);"
-                f"border-radius: {RADIAL_BUTTON_SIZE // 2}px;"
-                "border: 1px solid rgba(120, 180, 255, 160);}"
-                "QPushButton:hover {background: rgba(50, 90, 170, 255);}"
-            )
             button.clicked.connect(action.handler)
             # 沿上半圆弧均匀分布（球常在屏幕下缘，按钮向上展开）
             angle = math.radians(150 - i * (120 / max(count - 1, 1)))

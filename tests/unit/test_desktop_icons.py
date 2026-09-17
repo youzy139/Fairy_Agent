@@ -11,8 +11,9 @@ import pytest
 from fairy.tools.base import ToolError
 from fairy.tools.desktop_icons import ArrangeDesktopTool, ListDesktopIconsTool
 
-# 布局参数与 desktop_icons.py 保持一致
-START_X, START_Y, COL_W, ROW_H = 40, 40, 110, 100
+# 布局原点现在取现有图标包围盒左上角（多显示器原地重排），
+# FakeBackend 的图标从 (900, 900) 开始，故原点为 (900, 900)
+START_X, START_Y, COL_W, ROW_H = 900, 900, 110, 100
 
 
 class FakeBackend:
