@@ -24,12 +24,12 @@ Fairy Agent 是一个运行在用户电脑上的**本地优先、权限可控、
   `ui/`（cli.py / floating.py 悬浮球+指令条）、`tools/`（base / registry / fs / shell /
   search / screenshot / desktop / desktop_icons / _desktop_listview / apps /
   clipboard / browser / windows_mgmt / remember）
-- 工具 17 个：文件与搜索（read/write）、Shell（dangerous 默认关）、截屏（read，
+- 工具 18 个：文件与搜索（read/write）、Shell（dangerous 默认关）、截屏（read，
   快捷动作自动复制剪贴板）、桌面图标语义摆位（arrange_desktop，dangerous，
   dry_run 预览）、桌面文件归类（organize_desktop，dangerous）、open_app
   （write，FAIRY_APP_WHITELIST 免确认 + 别名记忆）、open_project（write）、
-  剪贴板读写、browser_open（network，收藏名解析）、窗口管理三件套、remember
-  （对话教学记忆）
+  剪贴板读写、browser_open（network，收藏名解析）、web_search（network）、
+  get_weather（network，wttr.in）、窗口管理三件套、remember（对话教学记忆）
 - 安全层：权限决策引擎（含 write 级 auto_allow 白名单钩子）、审计日志、工作区
   路径限制、命令黑名单、工具结果不可信标注；快捷动作同样审计
 - GUI：悬浮球（单击放射菜单 / 双击指令条 / 拖拽 / 右键退出）、指令条（Enter 执行、

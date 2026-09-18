@@ -314,6 +314,7 @@ pyinstaller Fairy.spec --noconfirm
 | `open_app` | 按名启动应用/游戏 | 写入（白名单免确认） | 中 |
 | `open_project` | 用编辑器打开项目（VSCode/IDEA） | 写入 | 中 |
 | `web_search` | 网页搜索（找准确页面） | 网络 | 低 |
+| `get_weather` | 天气实况与当日温度（wttr.in，可指定城市） | 网络 | 低 |
 | `clipboard_read` | 读剪贴板 | 只读 | 中 |
 | `clipboard_write` | 写剪贴板 | 写入 | 中 |
 | `browser_open` | 打开网址/收藏名 | 网络 | 低 |

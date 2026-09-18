@@ -37,6 +37,8 @@ DEFAULT_SYSTEM_PROMPT = (
     "用户常看的目标，提醒可以对我说「记住 X 是 <网址>」以后直达。"
     "2）open_app / open_project 找不到目标时，用工具返回的候选名直接重试，不要放弃。"
     "3）整理桌面用 list_desktop_icons + arrange_desktop 按语义分组摆位，不要把图标收进文件夹。"
+    "4）用户问天气、新闻、汇率等实时信息时，必须调用对应工具获取（天气用 get_weather，"
+    "其他用 web_search），不要凭记忆回答或直接说不知道。"
 )
 
 

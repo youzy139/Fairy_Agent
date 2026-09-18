@@ -54,6 +54,7 @@ def build_registry(settings: Settings, workspace: str, memory: Any = None) -> To
     from fairy.tools.clipboard import ClipboardReadTool, ClipboardWriteTool
     from fairy.tools.desktop_icons import ArrangeDesktopTool, ListDesktopIconsTool
     from fairy.tools.remember import RememberTool
+    from fairy.tools.weather import WeatherTool
     from fairy.tools.websearch import WebSearchTool
     from fairy.tools.windows_mgmt import (
         ActivateWindowTool,
@@ -88,6 +89,7 @@ def build_registry(settings: Settings, workspace: str, memory: Any = None) -> To
     registry.register(MinimizeAllWindowsTool())
     registry.register(RememberTool(memory))
     registry.register(WebSearchTool())
+    registry.register(WeatherTool())
     return registry
 
 
