@@ -11,6 +11,7 @@ hiddenimports = []
 # 语音链依赖（voice/ 内为函数内延迟 import，静态分析扫不到，需显式收集）：
 # faster-whisper（STT）、sounddevice（录音，含 PortAudio DLL）、edge-tts（TTS）。
 # 连带 ctranslate2 / onnxruntime（VAD）/ tokenizers / av / huggingface_hub。
+# fastembed：RAG 向量嵌入（ONNX，模型运行时下载到 ~/.fairy/models，不打包）。
 for pkg in (
     "faster_whisper",
     "ctranslate2",
@@ -20,6 +21,7 @@ for pkg in (
     "huggingface_hub",
     "sounddevice",
     "edge_tts",
+    "fastembed",
 ):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
     datas += pkg_datas

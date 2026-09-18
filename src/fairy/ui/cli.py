@@ -42,17 +42,30 @@ def cli_confirm_phrase(prompt: str) -> str:
     return input(prompt)
 
 
-def build_registry(settings: Settings, workspace: str, memory: Any = None) -> ToolRegistry:
+def build_registry(
+    settings: Settings,
+    workspace: str,
+    memory: Any = None,
+    knowledge: Any = None,
+) -> ToolRegistry:
     """按当前配置构建工具注册表，工作区根目录默认为当前目录。
 
     ``memory`` 为 MemoryStore 时，别名/收藏类工具（open_app、browser_open、
-    remember）启用对话教学记忆。
+    remember）启用对话教学记忆。``knowledge`` 为 KnowledgeBase 时知识库工具
+    直接复用该实例；未传入则按配置自建（嵌入模型懒加载，无额外开销）。
     """
     # 局部导入：桌面/窗口/应用类工具为 Windows 专属，保持模块在非 Windows 可导入
     from fairy.tools.apps import OpenAppTool, OpenProjectTool
     from fairy.tools.browser import BrowserOpenTool
     from fairy.tools.clipboard import ClipboardReadTool, ClipboardWriteTool
     from fairy.tools.desktop_icons import ArrangeDesktopTool, ListDesktopIconsTool
+    from fairy.tools.knowledge import (
+        KnowledgeAddTool,
+        KnowledgeForgetTool,
+        KnowledgeListTool,
+        KnowledgeSearchTool,
+        build_knowledge,
+    )
     from fairy.tools.remember import RememberTool
     from fairy.tools.weather import WeatherTool
     from fairy.tools.websearch import WebSearchTool
@@ -61,6 +74,9 @@ def build_registry(settings: Settings, workspace: str, memory: Any = None) -> To
         ListWindowsTool,
         MinimizeAllWindowsTool,
     )
+
+    if knowledge is None:
+        knowledge = build_knowledge(settings)
 
     registry = ToolRegistry()
     extra = settings.path_whitelist
@@ -90,6 +106,10 @@ def build_registry(settings: Settings, workspace: str, memory: Any = None) -> To
     registry.register(RememberTool(memory))
     registry.register(WebSearchTool())
     registry.register(WeatherTool())
+    registry.register(KnowledgeAddTool(workspace, knowledge, extra_roots=extra))
+    registry.register(KnowledgeSearchTool(knowledge))
+    registry.register(KnowledgeListTool(knowledge))
+    registry.register(KnowledgeForgetTool(knowledge))
     return registry
 
 
@@ -103,7 +123,10 @@ def build_agent(
     from fairy.llm.client import LLMClient
 
     ws = workspace or os.getcwd()
-    registry = build_registry(settings, ws, memory=memory)
+    from fairy.tools.knowledge import build_knowledge
+
+    knowledge = build_knowledge(settings)
+    registry = build_registry(settings, ws, memory=memory, knowledge=knowledge)
     policy = PolicyEngine(
         confirm=cli_confirm,
         confirm_phrase=cli_confirm_phrase,
@@ -119,6 +142,7 @@ def build_agent(
         on_tool_call=_print_tool_call,
         memory=memory,
         session_id=session_id,
+        knowledge=knowledge,
     )
 
 

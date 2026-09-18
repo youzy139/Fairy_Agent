@@ -43,6 +43,7 @@ class Settings:
     stt_model: str = "small"  # faster-whisper 模型规格（tiny/base/small/…）
     tts_enabled: bool = True  # 语音回复（TTS）开关，随 voice_enabled 生效
     tts_voice: str = "zh-CN-XiaoxiaoNeural"  # edge-tts 声音
+    rag_enabled: bool = True  # 知识库自动注入（RAG）开关，需 rag 额外组件
 
 
 def _parse_path_list(raw: str | None) -> list[Path] | None:
@@ -91,4 +92,5 @@ def load_settings(dotenv_path: str | os.PathLike[str] | None = None) -> Settings
         stt_model=os.environ.get("FAIRY_STT_MODEL", "small"),
         tts_enabled=parse_bool(os.environ.get("FAIRY_TTS"), default=True),
         tts_voice=os.environ.get("FAIRY_TTS_VOICE", "zh-CN-XiaoxiaoNeural"),
+        rag_enabled=parse_bool(os.environ.get("FAIRY_RAG"), default=True),
     )

@@ -25,6 +25,7 @@ _ALL_ENV_VARS = [
     "FAIRY_STT_MODEL",
     "FAIRY_TTS",
     "FAIRY_TTS_VOICE",
+    "FAIRY_RAG",
 ]
 
 

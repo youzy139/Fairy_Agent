@@ -926,6 +926,7 @@ def build_gui_components(settings: Settings) -> GuiComponents:
     """组装 GUI 版 Agent 及依赖：确认回调走 _ConfirmBridge 弹窗。"""
     from fairy.llm.client import LLMClient
     from fairy.memory.store import MemoryStore
+    from fairy.tools.knowledge import build_knowledge
 
     workspace = os.getcwd()
     bridge = _ConfirmBridge(None)
@@ -944,7 +945,8 @@ def build_gui_components(settings: Settings) -> GuiComponents:
         memory = MemoryStore(settings.data_dir)
         session_id = memory.create_session(workspace)
 
-    registry = build_registry(settings, workspace, memory=memory)
+    knowledge = build_knowledge(settings)
+    registry = build_registry(settings, workspace, memory=memory, knowledge=knowledge)
 
     def on_tool_call(name: str, args: dict[str, Any]) -> None:
         # 工作线程回调：转成 Qt 信号交给指令条展示
@@ -960,6 +962,7 @@ def build_gui_components(settings: Settings) -> GuiComponents:
         on_tool_call=on_tool_call,
         memory=memory,
         session_id=session_id,
+        knowledge=knowledge,
     )
     return GuiComponents(
         agent=agent,

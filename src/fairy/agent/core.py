@@ -39,6 +39,9 @@ DEFAULT_SYSTEM_PROMPT = (
     "3）整理桌面用 list_desktop_icons + arrange_desktop 按语义分组摆位，不要把图标收进文件夹。"
     "4）用户问天气、新闻、汇率等实时信息时，必须调用对应工具获取（天气用 get_weather，"
     "其他用 web_search），不要凭记忆回答或直接说不知道。"
+    "5）用户问题若涉及其个人文档/项目资料/知识库，回答依据以自动注入的「知识库参考片段」"
+    "为准；没有相关片段时再考虑 knowledge_search 或坦白不知道。用户说「把 X 加进知识库」"
+    "时用 knowledge_add。"
 )
 
 
@@ -72,6 +75,7 @@ class Agent:
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         memory: MemoryStore | None = None,
         session_id: int | None = None,
+        knowledge: Any = None,  # KnowledgeBase | None，开启 RAG 自动注入
     ) -> None:
         self._settings = settings
         self._llm = llm_client
@@ -82,6 +86,7 @@ class Agent:
         self._on_tool_call = on_tool_call
         self._memory = memory
         self._session_id = session_id
+        self._knowledge = knowledge
         self._messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
         ]
@@ -122,7 +127,7 @@ class Agent:
 
     def chat(self, user_text: str) -> str:
         """处理一轮用户输入，返回最终文本回复。"""
-        self._append_message({"role": "user", "content": user_text})
+        self._append_message({"role": "user", "content": self._with_knowledge(user_text)})
         tools_schema = self._registry.to_openai_tools()
 
         for _ in range(self._max_turns):
@@ -144,6 +149,22 @@ class Agent:
         warning = f"已达到最大工具调用轮次（{self._max_turns}），停止继续调用工具。"
         logger.warning(warning)
         return warning
+
+    def _with_knowledge(self, user_text: str) -> str:
+        """RAG 自动注入：检索知识库，把相关片段（不可信标注）拼进用户消息。
+
+        知识库为空或检索失败（模型未下载等）时原样返回，不影响主流程。
+        """
+        if self._knowledge is None or not self._settings.rag_enabled:
+            return user_text
+        try:
+            context = self._knowledge.retrieve_context(user_text)
+        except Exception as exc:
+            logger.warning("知识库检索失败，本轮不注入上下文：%s", exc)
+            return user_text
+        if not context:
+            return user_text
+        return f"{context}\n\n用户消息：{user_text}"
 
     def _dispatch_tool_call(self, tool_call: Any) -> None:
         """处理单个工具调用：policy 决策 → 执行 → 审计 → 结果回传。"""

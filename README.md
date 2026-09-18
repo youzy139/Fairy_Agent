@@ -41,7 +41,8 @@ Fairy 是一个运行在用户电脑上的 AI 代理，不是单纯的聊天机�
 - [x] 应用启动（open_app，含白名单与别名记忆）、VSCode 打开项目（open_project）
 - [x] 剪贴板读写、打开网页（含网址收藏）、窗口管理
 - [x] `fairy init` 初始化向导（端点预设：OpenAI / Kimi Code / Ollama）
-- [x] 持久记忆：SQLite 会话存储、用户偏好、别名/收藏（向量检索待做）
+- [x] 持久记忆：SQLite 会话存储、用户偏好、别名/收藏
+- [x] 知识库（RAG）：本地向量检索（fastembed + SQLite），文档入库/语义搜索/对话自动注入
 - [ ] 权限策略：沙箱（应用/路径/命令白名单与命令黑名单已完成）
 - [x] 语音：按键说话（STT 本地识别）、回复朗读（TTS）、Esc 打断（唤醒词待做）
 - [x] 蓝眼睛状态动画（待机呼吸 / 思考旋转 / 工具旋转加速 / 出错红闪）
@@ -283,7 +284,8 @@ pyinstaller Fairy.spec --noconfirm
 | `FAIRY_CONFIRM_DANGEROUS` | `true` | 危险操作是否确认 |
 | `FAIRY_SANDBOX` | `false` | 是否启用沙箱 |
 | `FAIRY_MEMORY_BACKEND` | `sqlite` | 记忆后端 |
-| `FAIRY_EMBEDDING_MODEL` | 无 | 向量模型 |
+| `FAIRY_EMBEDDING_MODEL` | `BAAI/bge-small-zh-v1.5` | 向量模型（fastembed，自动下载） |
+| `FAIRY_RAG` | `true` | 对话时自动检索知识库并注入上下文（需 `[rag]` 组件） |
 | `FAIRY_APP_WHITELIST` | 无 | 免确认直接启动的应用白名单（逗号分隔） |
 | `FAIRY_PROJECT_ROOTS` | `~/Desktop/project,~/projects,~/code` | open_project 的项目扫描根目录 |
 | `FAIRY_HOTKEY` | `ctrl+shift+space` | 召唤指令条的全局热键 |
@@ -315,6 +317,9 @@ pyinstaller Fairy.spec --noconfirm
 | `open_project` | 用编辑器打开项目（VSCode/IDEA） | 写入 | 中 |
 | `web_search` | 网页搜索（找准确页面） | 网络 | 低 |
 | `get_weather` | 天气实况与当日温度（wttr.in，可指定城市） | 网络 | 低 |
+| `knowledge_add` | 把文档/目录加入本地知识库（向量检索） | 写入 | 中 |
+| `knowledge_search` | 知识库语义检索 | 只读 | 低 |
+| `knowledge_list` / `knowledge_forget` | 查看 / 按来源删除知识库内容 | 只读 / 写入 | 低 |
 | `clipboard_read` | 读剪贴板 | 只读 | 中 |
 | `clipboard_write` | 写剪贴板 | 写入 | 中 |
 | `browser_open` | 打开网址/收藏名 | 网络 | 低 |
@@ -474,7 +479,8 @@ tests/
 - [x] SQLite 会话存储
 - [x] 用户偏好
 - [x] 项目上下文
-- [ ] 向量检索
+- [x] 向量检索：fastembed 本地嵌入（bge-small-zh）+ SQLite 向量库，知识库工具组
+  （add/search/list/forget）+ 对话自动注入（`FAIRY_RAG` 开关）
 
 ### v0.3 安全与审计
 

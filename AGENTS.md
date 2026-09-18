@@ -20,16 +20,19 @@ Fairy Agent 是一个运行在用户电脑上的**本地优先、权限可控、
 **v0.1 CLI MVP、v0.2 记忆层、桌面悬浮球 GUI 与快捷工具集均已入库**（2026-09-16）。已实现：
 
 - `src/fairy/`：`config.py`、`onboarding.py`（`fairy init` 向导）、`llm/client.py`、
-  `agent/core.py`、`memory/store.py`、`safety/`（policy / audit）、
-  `ui/`（cli.py / floating.py 悬浮球+指令条）、`tools/`（base / registry / fs / shell /
-  search / screenshot / desktop / desktop_icons / _desktop_listview / apps /
-  clipboard / browser / windows_mgmt / remember）
-- 工具 18 个：文件与搜索（read/write）、Shell（dangerous 默认关）、截屏（read，
+  `agent/core.py`、`memory/`（store / embedding / vector）、`safety/`（policy / audit）、
+  `ui/`（cli.py / floating.py 悬浮球+指令条）、`voice/`（recorder / stt / tts）、
+  `tools/`（base / registry / fs / shell / search / screenshot / desktop /
+  desktop_icons / _desktop_listview / apps / clipboard / browser / websearch /
+  weather / windows_mgmt / remember / knowledge）
+- 工具 24 个：文件与搜索（read/write）、Shell（dangerous 默认关）、截屏（read，
   快捷动作自动复制剪贴板）、桌面图标语义摆位（arrange_desktop，dangerous，
   dry_run 预览）、桌面文件归类（organize_desktop，dangerous）、open_app
   （write，FAIRY_APP_WHITELIST 免确认 + 别名记忆）、open_project（write）、
   剪贴板读写、browser_open（network，收藏名解析）、web_search（network）、
-  get_weather（network，wttr.in）、窗口管理三件套、remember（对话教学记忆）
+  get_weather（network，wttr.in）、知识库四件套（knowledge_add 文档入库 /
+  knowledge_search 语义检索 / knowledge_list / knowledge_forget）、
+  窗口管理三件套、remember（对话教学记忆）
 - 安全层：权限决策引擎（含 write 级 auto_allow 白名单钩子）、审计日志、工作区
   路径限制、命令黑名单、工具结果不可信标注；快捷动作同样审计
 - GUI：悬浮球（单击放射菜单 / 双击指令条 / 拖拽 / 右键退出）、指令条（Enter 执行、
@@ -144,7 +147,8 @@ pytest
 | `FAIRY_CONFIRM_DANGEROUS` | `true` | 危险操作是否确认（默认开启） |
 | `FAIRY_SANDBOX` | `false` | 是否启用沙箱 |
 | `FAIRY_MEMORY_BACKEND` | `sqlite` | 记忆后端 |
-| `FAIRY_EMBEDDING_MODEL` | 无 | 向量模型 |
+| `FAIRY_EMBEDDING_MODEL` | `BAAI/bge-small-zh-v1.5` | 向量模型（fastembed 本地推理） |
+| `FAIRY_RAG` | `true` | 知识库自动注入开关（需 `[rag]` 组件） |
 | `FAIRY_VOICE` | `false` | 语音总开关（按键说话，需 `[voice]` 额外组件） |
 | `FAIRY_STT_MODEL` | `small` | faster-whisper 模型规格 |
 | `FAIRY_TTS` | `true` | 回复朗读（edge-tts，随 FAIRY_VOICE 生效） |
@@ -195,7 +199,8 @@ pytest
 ## 路线图（v0.1、v0.2 已完成）
 
 - v0.1 CLI MVP：OpenAI 兼容 API、CLI 对话、文件工具（含搜索）、Shell 二次确认、审计日志——**已完成并入库**。
-- v0.2 记忆：SQLite 会话存储、用户偏好、项目上下文——**已完成**；向量检索待做。
+- v0.2 记忆：SQLite 会话存储、用户偏好、项目上下文、向量检索（fastembed 本地
+  嵌入 + SQLite 向量库 + 自动注入）——**已完成**。
 - v0.3 安全与审计：权限策略引擎与审计日志已落地基础版；待做：路径/命令白名单、沙箱适配。
 - v0.4 语音：按键说话 STT（faster-whisper 本地）、TTS 回复朗读（edge-tts）、
   Esc 打断——**已完成**；待做：唤醒词、开口自动打断。

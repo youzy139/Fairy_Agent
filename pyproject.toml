@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
     "openai>=1.0",
     "python-dotenv>=1.0",
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,9 @@ voice = [
     "faster-whisper>=1.0",
     "sounddevice>=0.4",
     "edge-tts>=7.0",
+]
+rag = [
+    "fastembed>=4.0",
 ]
 packaging = [
     "pyinstaller>=6.0",
