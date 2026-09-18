@@ -39,6 +39,10 @@ class Settings:
     embedding_model: str | None = None
     path_whitelist: list[Path] | None = None  # 读工具的额外允许目录
     command_whitelist: list[str] | None = None  # run_command 免二次确认的命令前缀
+    voice_enabled: bool = False  # 按键说话（STT）总开关，需安装 voice 额外组件
+    stt_model: str = "small"  # faster-whisper 模型规格（tiny/base/small/…）
+    tts_enabled: bool = True  # 语音回复（TTS）开关，随 voice_enabled 生效
+    tts_voice: str = "zh-CN-XiaoxiaoNeural"  # edge-tts 声音
 
 
 def _parse_path_list(raw: str | None) -> list[Path] | None:
@@ -83,4 +87,8 @@ def load_settings(dotenv_path: str | os.PathLike[str] | None = None) -> Settings
         embedding_model=os.environ.get("FAIRY_EMBEDDING_MODEL") or None,
         path_whitelist=_parse_path_list(os.environ.get("FAIRY_PATH_WHITELIST")),
         command_whitelist=_parse_str_list(os.environ.get("FAIRY_COMMAND_WHITELIST")),
+        voice_enabled=parse_bool(os.environ.get("FAIRY_VOICE"), default=False),
+        stt_model=os.environ.get("FAIRY_STT_MODEL", "small"),
+        tts_enabled=parse_bool(os.environ.get("FAIRY_TTS"), default=True),
+        tts_voice=os.environ.get("FAIRY_TTS_VOICE", "zh-CN-XiaoxiaoNeural"),
     )

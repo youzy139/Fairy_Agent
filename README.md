@@ -43,7 +43,7 @@ Fairy 是一个运行在用户电脑上的 AI 代理，不是单纯的聊天机�
 - [x] `fairy init` 初始化向导（端点预设：OpenAI / Kimi Code / Ollama）
 - [x] 持久记忆：SQLite 会话存储、用户偏好、别名/收藏（向量检索待做）
 - [ ] 权限策略：沙箱（应用/路径/命令白名单与命令黑名单已完成）
-- [ ] 语音唤醒、STT、TTS
+- [x] 语音：按键说话（STT 本地识别）、回复朗读（TTS）、Esc 打断（唤醒词待做）
 - [x] 蓝眼睛状态动画（待机呼吸 / 思考旋转 / 工具旋转加速 / 出错红闪）
 - [x] 系统托盘与全局热键（默认 Ctrl+Shift+Space 召唤指令条，`FAIRY_HOTKEY` 可改）
 - [ ] MCP / 插件系统
@@ -289,6 +289,11 @@ pyinstaller Fairy.spec --noconfirm
 | `FAIRY_HOTKEY` | `ctrl+shift+space` | 召唤指令条的全局热键 |
 | `FAIRY_PATH_WHITELIST` | 无 | 读类工具的额外允许目录（写工具不适用） |
 | `FAIRY_COMMAND_WHITELIST` | 无 | run_command 降为单次确认的命令前缀 |
+| `FAIRY_VOICE` | `false` | 语音总开关（需 `pip install -e ".[voice]"`） |
+| `FAIRY_STT_MODEL` | `small` | 语音识别模型（tiny/base/small/medium，越大越准越慢） |
+| `FAIRY_TTS` | `true` | 回复朗读开关（edge-tts 在线合成，随 `FAIRY_VOICE` 生效） |
+| `FAIRY_TTS_VOICE` | `zh-CN-XiaoxiaoNeural` | TTS 声音（`edge-tts --list-voices` 查看全部） |
+| `FAIRY_VOICE_HOTKEY` | `ctrl+shift+v` | 语音热键：按一下开始录音，再按一次识别发送 |
 
 > 密钥不要提交到 Git。推荐本地 `.env`，生产环境使用系统 keyring 或密钥管理服务。
 
@@ -479,10 +484,10 @@ tests/
 
 ### v0.4 语音
 
-- [ ] 唤醒词
-- [ ] STT
-- [ ] TTS
-- [ ] 语音中断
+- [ ] 唤醒词（采用按键说话替代常驻监听，唤醒词后续再议）
+- [x] STT：faster-whisper 本地识别（`FAIRY_VOICE=true` 启用，模型下载到 `~/.fairy/models`）
+- [x] TTS：edge-tts 在线合成回复朗读（`FAIRY_TTS`，默认声音 `zh-CN-XiaoxiaoNeural`）
+- [x] 语音中断：Esc 或再次按键打断朗读（开口自动打断的高级版待做）
 
 ### v0.5 桌面 UI
 

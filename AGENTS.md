@@ -34,8 +34,12 @@ Fairy Agent 是一个运行在用户电脑上的**本地优先、权限可控、
   路径限制、命令黑名单、工具结果不可信标注；快捷动作同样审计
 - GUI：悬浮球（单击放射菜单 / 双击指令条 / 拖拽 / 右键退出）、指令条（Enter 执行、
   Esc 收起、内联回复）、确认弹窗跨线程桥接；`Fairy.spec` 打单文件 exe
+- 语音（`voice/`：recorder / stt / tts）：按键说话（faster-whisper 本地识别，
+  模型缓存 `~/.fairy/models`，直连失败自动切 hf-mirror 镜像）+ 回复朗读
+  （edge-tts 在线合成，Esc/按键打断）；依赖为可选额外组件 `[voice]`，
+  `FAIRY_VOICE=true` 启用，语音热键默认 Ctrl+Shift+V
 - 记忆层：SQLite（WAL）会话/偏好/项目上下文；CLI `/new` `/sessions` `/resume`
-- 测试：219 用例全绿（unit / integration / safety，含 GUI 离屏）
+- 测试：279 用例全绿（unit / integration / safety，含 GUI 离屏）
 - 平台：Windows 完整支持；macOS/Linux 仅通用工具可用（桌面类工具 Windows 限定）
 
 尚未实现：`agent/planner.py`、`agent/prompt.py`、`llm/providers.py`、
@@ -141,6 +145,11 @@ pytest
 | `FAIRY_SANDBOX` | `false` | 是否启用沙箱 |
 | `FAIRY_MEMORY_BACKEND` | `sqlite` | 记忆后端 |
 | `FAIRY_EMBEDDING_MODEL` | 无 | 向量模型 |
+| `FAIRY_VOICE` | `false` | 语音总开关（按键说话，需 `[voice]` 额外组件） |
+| `FAIRY_STT_MODEL` | `small` | faster-whisper 模型规格 |
+| `FAIRY_TTS` | `true` | 回复朗读（edge-tts，随 FAIRY_VOICE 生效） |
+| `FAIRY_TTS_VOICE` | `zh-CN-XiaoxiaoNeural` | TTS 声音 |
+| `FAIRY_VOICE_HOTKEY` | `ctrl+shift+v` | 语音热键（按一下录音，再按识别发送） |
 
 ## 代码与安全约定（编写代码时必须遵守）
 
@@ -188,6 +197,7 @@ pytest
 - v0.1 CLI MVP：OpenAI 兼容 API、CLI 对话、文件工具（含搜索）、Shell 二次确认、审计日志——**已完成并入库**。
 - v0.2 记忆：SQLite 会话存储、用户偏好、项目上下文——**已完成**；向量检索待做。
 - v0.3 安全与审计：权限策略引擎与审计日志已落地基础版；待做：路径/命令白名单、沙箱适配。
-- v0.4 语音：唤醒词、STT、TTS、语音中断。
+- v0.4 语音：按键说话 STT（faster-whisper 本地）、TTS 回复朗读（edge-tts）、
+  Esc 打断——**已完成**；待做：唤醒词、开口自动打断。
 - v0.5 桌面 UI：悬浮球、放射快捷工具栏、指令条、状态动画、系统托盘、全局热键、通知、exe 打包——**已全部完成**。
 - v1.0：MCP / 插件系统、多模型路由、跨平台安装包、完整文档。

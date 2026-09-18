@@ -4,11 +4,14 @@
 
 - 蓝眼睛悬浮球：无边框、置顶、可拖拽；单击弹放射快捷工具栏，双击直达指令条，
   右键菜单退出。
-- 放射工具栏：围绕悬浮球的圆形按钮（指令 / 截屏 / 整理桌面）。
+- 放射工具栏：围绕悬浮球的圆形按钮（指令 / 截屏 / 说话）。
 - 悬浮指令条：类 utools/Alfred 的紧凑输入条，输入即走，回复内联短小展示，
   Esc 收起，没有大聊天窗。
 - 快捷动作：截屏直达（存「图片/屏幕截图」，Toast 可点击打开）；
   整理桌面改为给 Agent 下达语义摆位指令（图标不移动文件，只重排位置）。
+- 语音（可选，fairy-agent[voice]）：按键说话——点麦克风或按 Ctrl+Shift+V
+  开始录音，再按一次识别并直接作为指令发送；回复自动朗读，Esc 打断。
+  STT 本地识别（音频不出本机），TTS 走 edge-tts 在线合成（写审计日志）。
 - 安全模型与 CLI 一致：write/dangerous 级操作经 _ConfirmBridge 弹窗确认；
   所有快捷动作写审计日志。
 """
@@ -26,7 +29,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
     QGuiApplication,
@@ -57,6 +60,7 @@ from fairy.safety.policy import PolicyEngine
 from fairy.tools.registry import ToolRegistry
 from fairy.tools.screenshot import ScreenshotTool
 from fairy.ui.cli import build_registry
+from fairy.voice import VOICE_MISSING_HINT, voice_available
 
 # 悬浮球直径（像素）
 BALL_SIZE = 72
@@ -324,6 +328,7 @@ class CommandBar(QWidget):
         self._worker: AgentWorker | None = None
         self._anchor: QWidget | None = None
         self._tray: Any = None  # QSystemTrayIcon | None，用于后台完成通知
+        self._voice: Any = None  # VoiceController | None，回复朗读与打断
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -435,6 +440,10 @@ class CommandBar(QWidget):
         """注入托盘图标，用于「指令条已收起时」的完成通知。"""
         self._tray = tray
 
+    def set_voice(self, voice: Any) -> None:
+        """注入语音控制器：回复朗读、Esc 打断。"""
+        self._voice = voice
+
     def _notify_if_hidden(self, title: str, text: str) -> None:
         """指令条不可见时发托盘通知（长任务完成提醒）；可见时内联展示已足够。"""
         if self._tray is not None and not self.isVisible():
@@ -444,6 +453,8 @@ class CommandBar(QWidget):
         self._set_reply(reply or "（空回复）")
         self._components.emitter.stateChanged.emit("ok")
         self._notify_if_hidden("Fairy 执行完成", reply or "")
+        if self._voice is not None and reply:
+            self._voice.speak(reply)
 
     def _on_error(self, message: str) -> None:
         self._set_reply(f"出错了——{message}")
@@ -470,17 +481,173 @@ class CommandBar(QWidget):
 
     def keyPressEvent(self, event: Any) -> None:
         if event.key() == Qt.Key.Key_Escape:
+            if self._voice is not None:
+                self._voice.stop_speaking()  # Esc 同时打断朗读
             self.hide()
             return
         super().keyPressEvent(event)
 
 
+class VoiceController(QObject):
+    """按键说话（STT）+ 语音回复（TTS）的总控。
+
+    交互：点放射菜单麦克风或按语音热键（默认 Ctrl+Shift+V）开始录音，
+    再按一次结束并识别，识别文本直接作为指令发送给 Agent（对讲机模式）。
+    Agent 回复在 TTS 开启时自动朗读；Esc 或再次按键可打断朗读。
+
+    隐私边界：STT 用 faster-whisper 本地识别，音频不出本机；
+    TTS 用 edge-tts 在线合成（network 级），合成事件写审计日志。
+    依赖未安装或 FAIRY_VOICE=false 时优雅降级为提示。
+    """
+
+    # 短于此时长（秒）视为误触，不送识别
+    MIN_AUDIO_SECONDS = 0.4
+
+    def __init__(
+        self, components: GuiComponents, command_bar: CommandBar, settings: Settings
+    ) -> None:
+        super().__init__(command_bar)
+        self._components = components
+        self._command_bar = command_bar
+        self._settings = settings
+        self._anchor: QWidget = command_bar  # Toast 锚点，run_gui 中换成悬浮球
+        self._recorder: Any = None  # PushToTalkRecorder，首次使用时创建
+        self._stt: Any = None  # SpeechToText，懒建
+        self._tts: Any = None  # TextToSpeech，懒建
+        self._player: Any = None  # QMediaPlayer，懒建
+        self._workers: list[QThread] = []  # 防止工作线程提前回收
+
+    def set_anchor(self, anchor: QWidget) -> None:
+        self._anchor = anchor
+
+    # --- 按键说话 ---
+    def toggle(self) -> None:
+        """切换录音状态：未录音则开始，录音中则结束并识别。"""
+        if not self._settings.voice_enabled:
+            Toast("语音未启用：在 .env 中设置 FAIRY_VOICE=true", self._anchor)
+            return
+        if not voice_available():
+            Toast(VOICE_MISSING_HINT, self._anchor)
+            return
+        if self._recorder is not None and self._recorder.recording:
+            self._finish()
+        else:
+            self._begin()
+
+    def _begin(self) -> None:
+        from fairy.voice.recorder import PushToTalkRecorder, RecorderError
+
+        self.stop_speaking()  # 开口前先让 Fairy 闭嘴
+        if self._recorder is None:
+            self._recorder = PushToTalkRecorder()
+        try:
+            self._recorder.start()
+        except RecorderError as exc:
+            self._components.emitter.stateChanged.emit("error")
+            Toast(str(exc), self._anchor)
+            return
+        self._components.emitter.stateChanged.emit("working")  # 快转=录音中
+        Toast("🎙 录音中…说完再按一次", self._anchor)
+
+    def _finish(self) -> None:
+        audio = self._recorder.stop()
+        if self._recorder.duration(audio) < self.MIN_AUDIO_SECONDS:
+            self._components.emitter.stateChanged.emit("idle")
+            Toast("说话时间太短，没录到内容", self._anchor)
+            return
+        if self._stt is None:
+            from fairy.voice.stt import SpeechToText
+
+            self._stt = SpeechToText(
+                model_size=self._settings.stt_model,
+                model_dir=self._settings.data_dir / "models",
+            )
+            Toast("首次识别需加载语音模型，请稍候…", self._anchor)
+
+        self._components.emitter.stateChanged.emit("thinking")
+        worker = FuncWorker(lambda: self._stt.transcribe(audio), parent=self)
+        worker.done.connect(self._on_transcribed)
+        worker.failed.connect(self._on_voice_error)
+        self._keep(worker)
+        worker.start()
+
+    def _on_transcribed(self, text: str) -> None:
+        self._components.audit.log(
+            tool="voice_stt",
+            args={},
+            allowed=True,
+            result_summary=f"识别结果：{text[:100]}",
+        )
+        if not text:
+            self._components.emitter.stateChanged.emit("idle")
+            Toast("没听清，请再说一次", self._anchor)
+            return
+        # 识别文本直接作为指令发送（指令条会弹出并展示过程）
+        self._command_bar.run_command(text)
+
+    # --- 语音回复 ---
+    def speak(self, text: str) -> None:
+        """朗读 Agent 回复（TTS 开启且有可用依赖时）。"""
+        if not (self._settings.voice_enabled and self._settings.tts_enabled):
+            return
+        if not voice_available():
+            return
+        if self._tts is None:
+            from fairy.voice.tts import TextToSpeech
+
+            self._tts = TextToSpeech(
+                voice=self._settings.tts_voice,
+                cache_dir=self._settings.data_dir / "tts",
+            )
+        self.stop_speaking()
+        worker = FuncWorker(lambda: str(self._tts.synthesize(text)), parent=self)
+        worker.done.connect(self._play)
+        worker.failed.connect(lambda msg: Toast(msg, self._anchor))
+        self._keep(worker)
+        worker.start()
+
+    def _play(self, mp3_path: str) -> None:
+        from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+
+        if self._player is None:
+            self._player = QMediaPlayer(self)
+            self._player.setAudioOutput(QAudioOutput(self))
+        self._components.audit.log(
+            tool="voice_tts",
+            args={"voice": self._settings.tts_voice},
+            allowed=True,
+            result_summary=f"朗读回复（{Path(mp3_path).name}）",
+        )
+        self._player.setSource(QUrl.fromLocalFile(mp3_path))
+        self._player.play()
+
+    def stop_speaking(self) -> None:
+        """打断当前朗读（Esc / 新的录音 / 新回复到达时调用）。"""
+        if self._player is not None:
+            self._player.stop()
+
+    # --- 内部 ---
+    def _on_voice_error(self, message: str) -> None:
+        self._components.emitter.stateChanged.emit("error")
+        self._components.audit.log(
+            tool="voice_stt", args={}, allowed=True, result_summary=f"失败：{message}"
+        )
+        Toast(message, self._anchor)
+
+    def _keep(self, worker: QThread) -> None:
+        self._workers.append(worker)
+        worker.finished.connect(lambda: self._workers.remove(worker))
+
+
 @dataclass
 class RadialAction:
-    """放射工具栏上的一个快捷动作。"""
+    """放射工具栏上的一个快捷动作。
 
-    icon: str  # 图标资源名（cmd / shot / organize，见 scripts/make_icon.py）
-    label: str  # 提示文字
+    icon 为图标资源名（cmd / shot / mic，见 scripts/make_icon.py）。
+    """
+
+    icon: str
+    label: str
     handler: Callable[[], None]
 
 
@@ -892,10 +1059,14 @@ def run_gui(settings: Settings) -> int:
         on_double_click=lambda: command_bar.show_near(ball),
         on_moved=lambda: command_bar.follow(ball),
     )
+    voice = VoiceController(components, command_bar, settings)
+    voice.set_anchor(ball)
+    command_bar.set_voice(voice)
 
     actions = [
         RadialAction("cmd", "指令", lambda: command_bar.show_near(ball)),
         RadialAction("shot", "截屏", lambda: quick_screenshot(components, ball)),
+        RadialAction("mic", "说话（再按一次结束）", voice.toggle),
     ]
     ball.set_radial(RadialMenu(actions))
     # 状态总线驱动眼睛动画
@@ -907,10 +1078,15 @@ def run_gui(settings: Settings) -> int:
     hotkey = HotkeyManager(os.environ.get("FAIRY_HOTKEY", "ctrl+shift+space"))
     hotkey.triggered.connect(lambda: command_bar.show_near(ball))
     hotkey.start()
+    # 语音热键（默认 Ctrl+Shift+V）：按一下开始录音，再按一下结束并识别
+    voice_hotkey = HotkeyManager(os.environ.get("FAIRY_VOICE_HOTKEY", "ctrl+shift+v"))
+    voice_hotkey.triggered.connect(voice.toggle)
+    voice_hotkey.start()
 
     ball.show()
     exit_code = app.exec()
     hotkey.stop()
+    voice_hotkey.stop()
     if components.memory is not None:
         components.memory.close()
     return exit_code

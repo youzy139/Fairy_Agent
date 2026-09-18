@@ -2,10 +2,10 @@
 
 输出：
 - assets/fairy.ico 与 assets/fairy-icon.png（快捷方式 / exe 图标）
-- src/fairy/ui/assets/radial-{cmd,shot,organize}.png（放射菜单按钮图标，
+- src/fairy/ui/assets/radial-{cmd,shot,organize,mic}.png（放射菜单按钮图标，
   白色线条、透明底，随包分发）
 
-设计：纯几何线条——外环/内弧/瞳点（眼睛）；指令气泡、相机、桌面格子。
+设计：纯几何线条——外环/内弧/瞳点（眼睛）；指令气泡、相机、桌面格子、麦克风。
 纯代码绘制（Pillow），不含任何外部素材，可重复生成：
 
     python scripts/make_icon.py
@@ -116,6 +116,20 @@ def draw_radial_organize() -> Image.Image:
     return img
 
 
+def draw_radial_mic() -> Image.Image:
+    """说话：麦克风——胶囊咪头 + 托弧 + 立杆 + 底座。"""
+    img, d = _new()
+    # 咪头：竖直胶囊
+    d.rounded_rectangle([196, 64, 316, 288], radius=60, outline=WHITE, width=_RI)
+    # 托弧：下半圆环托住咪头
+    d.arc([136, 128, 376, 368], start=0, end=180, fill=WHITE, width=_RI)
+    # 立杆
+    d.line([(256, 368), (256, 424)], fill=WHITE, width=_RI)
+    # 底座横线
+    d.line([(176, 424), (336, 424)], fill=WHITE, width=_RI)
+    return img
+
+
 def main() -> None:
     img = draw_app_icon().resize((256, 256), Image.LANCZOS)
     OUT_PNG.parent.mkdir(parents=True, exist_ok=True)
@@ -130,6 +144,7 @@ def main() -> None:
         ("radial-cmd.png", draw_radial_cmd),
         ("radial-shot.png", draw_radial_shot),
         ("radial-organize.png", draw_radial_organize),
+        ("radial-mic.png", draw_radial_mic),
     ):
         icon = fn().resize((128, 128), Image.LANCZOS)
         icon.save(OUT_RADIAL / name)
